@@ -1,0 +1,187 @@
+/**
+ * usage-stats-app — theme shim + window layout.
+ *
+ * Provides the dsh `--dsw-alias-*` tokens the panel consumes, using the exact
+ * values sampled from dsh's own theme layer (body / body[data-ds-dark-theme]),
+ * and turns the dsh sidebar-popup panel into a full-window app layout.
+ * Loaded AFTER the client bundle so its overrides win the cascade.
+ */
+
+:root {
+  color-scheme: light dark;
+}
+
+html, body {
+  height: 100%;
+  overflow: hidden;
+  font-family: "Segoe UI", "Microsoft YaHei", system-ui, -apple-system, sans-serif;
+}
+
+/* Authentic dsh theme alias values (dark = default, light via media query). */
+body {
+  --dsw-alias-bg-base: #151517;
+  --dsw-alias-bg-layer-1: #151517;
+  --dsw-alias-bg-layer-2: #1f2023;
+  --dsw-alias-bg-layer-3: #26272b;
+  --dsw-alias-bg-overlay: #151517;
+  --dsw-alias-fill-l2: color-mix(in srgb, #adb2b8 16%, transparent);
+  --dsw-alias-label-primary: #f9fafb;
+  --dsw-alias-label-secondary: #cfd3d6;
+  --dsw-alias-label-tertiary: #adb2b8;
+  --dsw-alias-label-caption: #81858c;
+  --dsw-alias-state-error-primary: #f25a5a;
+  --dsw-alias-state-success-primary: #22c55e;
+  --dsw-alias-scrollbar-bg-l2: #545557;
+  --dsw-alias-scrollbar-hover-l2: #65676b;
+  margin: 0;
+  background:
+    radial-gradient(1200px 800px at 82% -10%, color-mix(in srgb, #4d6bfe 7%, transparent), transparent 60%),
+    #151517;
+  color: var(--dsw-alias-label-primary);
+}
+
+@media (prefers-color-scheme: light) {
+  body {
+    --dsw-alias-bg-base: #ffffff;
+    --dsw-alias-bg-layer-1: #ffffff;
+    --dsw-alias-bg-layer-2: #f2f4f7;
+    --dsw-alias-bg-layer-3: #e9ecf2;
+    --dsw-alias-bg-overlay: #ffffff;
+    --dsw-alias-fill-l2: color-mix(in srgb, #81858c 14%, transparent);
+    --dsw-alias-label-primary: #0f1115;
+    --dsw-alias-label-secondary: #61666b;
+    --dsw-alias-label-tertiary: #81858c;
+    --dsw-alias-label-caption: #adb2b8;
+    --dsw-alias-state-error-primary: #ec1313;
+    --dsw-alias-state-success-primary: #22c55e;
+    --dsw-alias-scrollbar-bg-l2: #e5e5e5;
+    --dsw-alias-scrollbar-hover-l2: #d4d4d4;
+    background:
+      radial-gradient(1200px 800px at 82% -10%, color-mix(in srgb, #4d6bfe 8%, transparent), transparent 60%),
+      #ffffff;
+  }
+}
+
+#root {
+  height: 100vh;
+}
+
+/* 无边框窗口：面板头部即标题栏（拖拽区 + 内容不可选中）。 */
+.usg_header {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.usg_header button {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* 无边框窗口边缘缩放把手（Tauri start_resize_dragging）。 */
+.usg_resize {
+  position: fixed;
+  z-index: 100;
+}
+
+.usg_resize.n { top: 0; left: 8px; right: 8px; height: 6px; cursor: n-resize; }
+.usg_resize.s { bottom: 0; left: 8px; right: 8px; height: 6px; cursor: s-resize; }
+.usg_resize.e { top: 8px; bottom: 8px; right: 0; width: 6px; cursor: e-resize; }
+.usg_resize.w { top: 8px; bottom: 8px; left: 0; width: 6px; cursor: w-resize; }
+.usg_resize.ne { top: 0; right: 0; width: 10px; height: 10px; cursor: ne-resize; }
+.usg_resize.nw { top: 0; left: 0; width: 10px; height: 10px; cursor: nw-resize; }
+.usg_resize.se { bottom: 0; right: 0; width: 10px; height: 10px; cursor: se-resize; }
+.usg_resize.sw { bottom: 0; left: 0; width: 10px; height: 10px; cursor: sw-resize; }
+
+/* App window: the dsh floating popup becomes a full-bleed app panel. */
+.usg_layer {
+  height: 49px;
+  margin: 0 !important;
+  flex: none;
+}
+
+.usg_badge {
+  border-radius: 0 !important;
+  padding: 0 16px !important;
+}
+
+/* 置顶（pin）激活态：图钉变品牌蓝。 */
+.usg_iconButton[aria-pressed="true"] {
+  color: var(--usg-blue);
+}
+
+.usg_panel {
+  position: fixed !important;
+  inset: 0 !important;
+  bottom: 0 !important;
+  left: 0 !important;
+  width: 100% !important;
+  max-width: none !important;
+  max-height: none !important;
+  border: none !important;
+  border-radius: 0 !important;
+  animation: none !important;
+}
+
+.usg_body {
+  padding: 12px 20px 24px !important;
+}
+
+.usg_section {
+  max-width: 560px;
+}
+
+/* Tooltip shim (primitives.Tooltip). */
+.usg_tip {
+  position: relative;
+  display: inline-flex;
+}
+
+.usg_tip::after {
+  content: attr(data-tip);
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: color-mix(in srgb, var(--dsw-alias-bg-base) 92%, transparent);
+  color: var(--dsw-alias-label-primary);
+  border: 1px solid color-mix(in srgb, var(--dsw-alias-label-tertiary) 24%, transparent);
+  border-radius: 8px;
+  padding: 3px 8px;
+  font-size: 11px;
+  line-height: 16px;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity .12s ease;
+  z-index: 40;
+}
+
+.usg_tip:hover::after {
+  opacity: 1;
+}
+
+.usg_tip::before {
+  content: "";
+  position: absolute;
+  bottom: calc(100% + 2px);
+  left: 50%;
+  transform: translateX(-50%);
+  border: 5px solid transparent;
+  border-top-color: color-mix(in srgb, var(--dsw-alias-label-tertiary) 24%, transparent);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity .12s ease;
+  z-index: 40;
+}
+
+.usg_tip:hover::before {
+  opacity: 1;
+}
+
+/** Onboarding hint when the panel is closed (badge-only state). */
+.usg_app-closeHint {
+  padding: 12px 16px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 18px;
+}

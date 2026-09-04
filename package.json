@@ -1,0 +1,20 @@
+{
+  "name": "usage-stats-app",
+  "version": "0.3.0",
+  "description": "Standalone DeepSeek usage dashboard (Tauri 2 shell + plugin panel UI + in-page data layer)",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "check": "node --check src/renderer/boot.js && node --check src/renderer/dataLayer.js && node --check src/renderer/primitives.js && node --check src/renderer/platform.js && node --check src/renderer/balance.js",
+    "test": "node scripts/test-data-layer.mjs",
+    "build-vendor": "node scripts/copy-vendor.mjs",
+    "make-icon": "node scripts/make-icon.mjs"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.9.0",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  }
+}

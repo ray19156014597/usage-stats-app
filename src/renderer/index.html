@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="dark light" />
+  <title>DeepSeek 用量</title>
+  <script type="importmap">
+    {
+      "imports": {
+        "@tauri-apps/api/core": "/vendor/api-core.js",
+        "@tauri-apps/plugin-http": "/vendor/plugin-http.js"
+      }
+    }
+  </script>
+  <style>
+    html, body { margin: 0; padding: 0; }
+  </style>
+</head>
+<body>
+  <div class="usg_resize" data-edge="n"></div>
+  <div class="usg_resize" data-edge="s"></div>
+  <div class="usg_resize" data-edge="e"></div>
+  <div class="usg_resize" data-edge="w"></div>
+  <div class="usg_resize" data-edge="ne"></div>
+  <div class="usg_resize" data-edge="nw"></div>
+  <div class="usg_resize" data-edge="se"></div>
+  <div class="usg_resize" data-edge="sw"></div>
+  <div id="root"></div>
+  <script src="/vendor/react.production.min.js"></script>
+  <script src="/vendor/react-dom.production.min.js"></script>
+  <script src="/primitives.js"></script>
+  <script>
+    // Stand-in for dsh's module loader: captures the bundle entry for boot.js.
+    window.__ModuleLoader__ = { load: function (entry) { window.__USG_ENTRY__ = entry; } };
+  </script>
+  <script src="/client.js"></script>
+  <script type="module" src="/boot.js"></script>
+  <link rel="stylesheet" href="/app.css" />
+</body>
+</html>
