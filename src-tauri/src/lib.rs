@@ -16,7 +16,7 @@ use std::sync::Mutex;
 use std::time::Duration;
 use tauri::menu::{CheckMenuItem, Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{Manager, WebviewUrl, WindowEvent};
+use tauri::{Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WindowEvent};
 use tauri_plugin_autostart::ManagerExt;
 
 /// Credentials handed to the WebView (the usage token lives in Rust config).
@@ -195,6 +195,32 @@ fn show_main(app: &tauri::AppHandle) {
 	}
 }
 
+/// 面板按 440px 宽设计；窗口略大时字号会显得偏大 —— 用 WebView 整体缩放收一档。
+const DEFAULT_ZOOM: f64 = 0.94;
+
+/// 默认摆放在主显示器**工作区**（已排除任务栏）的右下角，留 24px 边距 ——
+/// 桌面小组件的常规落点，不再出现在屏幕正中。窗口大小超出工作区时退回左上角。
+fn place_bottom_right(window: &tauri::WebviewWindow) {
+	const MARGIN: i32 = 24;
+	let monitor = match window.current_monitor() {
+		Ok(Some(monitor)) => monitor,
+		_ => match window.primary_monitor() {
+			Ok(Some(monitor)) => monitor,
+			_ => return,
+		},
+	};
+	let area = monitor.work_area();
+	let size = window
+		.outer_size()
+		.unwrap_or_else(|_| PhysicalSize::new(560, 780));
+	let x = area.position.x + area.size.width as i32 - size.width as i32 - MARGIN;
+	let y = area.position.y + area.size.height as i32 - size.height as i32 - MARGIN;
+	let _ = window.set_position(PhysicalPosition::new(
+		x.max(area.position.x),
+		y.max(area.position.y),
+	));
+}
+
 /** Recreate the tray menu (the autostart checkbox reflects the config). */
 fn rebuild_tray_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
 	let autostart = app.state::<AppConfig>().autostart();
@@ -242,6 +268,12 @@ pub fn run() {
 						}
 					}
 				});
+				// 先定位再显示（配置里 visible=false），避免窗口先出现在默认位置再跳一下。
+				place_bottom_right(&window);
+				// 面板按 440px 宽设计，默认窗口略微放大后字号显得偏大 —— 用 WebView 的
+				// 整体缩放（等价 Ctrl+-）把字号/间距/格子一起收一档，比逐条改 CSS 稳。
+				let _ = window.set_zoom(DEFAULT_ZOOM);
+				let _ = window.show();
 			}
 
 			// Tray: left-click shows the panel; menu has open/autostart/quit.

@@ -51,6 +51,19 @@ import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 				window.__TAURI__.core.invoke("plugin:window|start_resize_dragging", { direction: direction }).catch(function () {});
 			});
 		});
+
+		// Frameless window: 面板头部即标题栏 —— 按住头部的空白处即可拖动窗口。
+		// 用委托而不是 data-tauri-drag-region：后者只认"鼠标正好落在带属性的那个元素上"，
+		// 点到标题文字就失效；这里改成"整个头部除按钮/输入框外都可拖"。
+		document.addEventListener("mousedown", function (event) {
+			if (event.button !== 0) return;
+			var target = event.target;
+			if (target === null || target === void 0 || typeof target.closest !== "function") return;
+			if (target.closest("button, input, select, textarea, a, [data-no-drag]") !== null) return;
+			if (target.closest(".usg_header") === null) return;
+			event.preventDefault(); // 拖动时不要选中标题文字
+			window.__TAURI__.core.invoke("plugin:window|start_dragging").catch(function () {});
+		});
 	}
 
 	// --- 3. plugin bundle: require shims + dictionaries + render ---
