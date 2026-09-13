@@ -77,6 +77,31 @@ body {
   user-select: none;
 }
 
+/* 窄窗口（默认 420px）：独立版头部比插件多 3 个窗口按钮，标题会被挤成两行 ——
+   标题改为不折行，图标按钮收一档并收紧间距，"更新于"让位（面板底部仍有同样的时间戳）。 */
+.usg_title {
+  white-space: nowrap;
+}
+
+@media (max-width: 470px) {
+  .usg_iconButton {
+    width: 28px !important;
+    height: 28px !important;
+  }
+
+  .usg_headerActions {
+    gap: 3px !important;
+  }
+
+  .usg_header {
+    padding: 9px 10px !important;
+  }
+
+  .usg_headerHint {
+    display: none;
+  }
+}
+
 /* 无边框窗口边缘缩放把手（Tauri start_resize_dragging）。 */
 .usg_resize {
   position: fixed;
