@@ -130,53 +130,9 @@ body {
   max-width: 560px;
 }
 
-/* Tooltip shim (primitives.Tooltip). */
-.usg_tip {
-  position: relative;
-  display: inline-flex;
-}
-
-.usg_tip::after {
-  content: attr(data-tip);
-  position: absolute;
-  bottom: calc(100% + 8px);
-  left: 50%;
-  transform: translateX(-50%);
-  background: color-mix(in srgb, var(--dsw-alias-bg-base) 92%, transparent);
-  color: var(--dsw-alias-label-primary);
-  border: 1px solid color-mix(in srgb, var(--dsw-alias-label-tertiary) 24%, transparent);
-  border-radius: 8px;
-  padding: 3px 8px;
-  font-size: 11px;
-  line-height: 16px;
-  white-space: nowrap;
-  pointer-events: none;
-  opacity: 0;
-  transition: opacity .12s ease;
-  z-index: 40;
-}
-
-.usg_tip:hover::after {
-  opacity: 1;
-}
-
-.usg_tip::before {
-  content: "";
-  position: absolute;
-  bottom: calc(100% + 2px);
-  left: 50%;
-  transform: translateX(-50%);
-  border: 5px solid transparent;
-  border-top-color: color-mix(in srgb, var(--dsw-alias-label-tertiary) 24%, transparent);
-  pointer-events: none;
-  opacity: 0;
-  transition: opacity .12s ease;
-  z-index: 40;
-}
-
-.usg_tip:hover::before {
-  opacity: 1;
-}
+/* 面板自绘 tooltip（`.usg_tip` 现在由 client.js 自己渲染并定位，见玻璃材质一节）。
+   注意：这里**不能**再给 `.usg_tip` 写样式 —— 早先的 primitives.Tooltip 垫片用的就是
+   这个类名，插件客户端已不再调用 Tooltip，重复定义会把面板自绘的 tooltip 顶掉。 */
 
 /** Onboarding hint when the panel is closed (badge-only state). */
 .usg_app-closeHint {

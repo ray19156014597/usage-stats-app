@@ -16,6 +16,7 @@
     "core:window:allow-unminimize",
     "core:window:allow-start-dragging",
     "core:window:allow-start-resize-dragging",
+    "core:window:allow-set-always-on-top",
     "http:default",
     {
       "identifier": "http:allow-fetch",

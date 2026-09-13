@@ -3,10 +3,20 @@
 参照 [Joyi-code/DeepSeekMonitorWindows](https://github.com/Joyi-code/DeepSeekMonitorWindows)
 的**软件工程路线**（Tauri 2 + Rust + React/WebView2 + NSIS 小包 + 托盘常驻），
 但 **UI 与数据完全沿用 dsh-usage-stats 插件的方案**：
-- UI：插件的 `client.js` 面板（统计条带、热力图、日下钻、最近 14 天、按 API Key、毛玻璃）原封不动；
+- UI：插件的 `client.js` 面板（统计条带、热力图、日下钻、最近 14 天、按 API Key、毛玻璃）**与插件同代**——
+  玻璃材质阶梯、一屏分层折叠、语义化配色、日历键盘导航、无障碍播报、面板预热等改动全部继承；
 - 数据：插件的 `platform.js` / `balance.js` 取数与聚合逻辑原样（选项 C：在 WebView 内运行，
   网络经 tauri-plugin-http 由 Rust 代发，域名白名单限于 api.deepseek.com / platform.deepseek.com）；
 - 凭据：Rust 侧持有 `%APPDATA%\dsh-usage-stats-app\config.json`（与早期版本同路径，已迁移值直接可用）。
+
+## 与插件版的差异（独立版专属）
+
+`src/renderer/client.js` 是插件 `lib/client.js` 的副本，只在两处不同（代码内均以「独立版」注释标出）：
+
+1. **标题栏控制**：置顶（图钉）/ 刷新 / 设置 / 最小化 / 最大化 / 关闭 —— 关闭 = 隐藏窗口到托盘；
+2. **Esc 语义**：逐级返回后按 Esc 同样"隐藏窗口"，不会留下空白窗口。
+
+其余（材质、布局、配色、键盘、无障碍、数据流）与插件完全一致，便于后续同步。
 
 ## 致谢 / Credits
 
@@ -26,9 +36,11 @@
 - **托盘悬停显示实时数据**：「今日 Tokens / 本月 ¥」由面板数据刷新时推送到 Rust 更新
 - **开机自启**：托盘菜单复选框，持久化（`config.json` 的 `autostart`）
 - 无边框沉浸窗口：面板头部即标题栏（拖拽移动 + 最小化/最大化/关闭），边缘缩放把手
-- 置顶按钮（图钉，激活态品牌蓝）
+- 置顶按钮（图钉，激活态品牌蓝；经 `plugin:window|set_always_on_top` 生效）
 - 登录同步：Rust 打开 WebView2 登录窗到 platform.deepseek.com，捕获 `localStorage.userToken` 自动保存
 - 亮/暗主题跟随系统（插件主题层，真实 dsh token 值）
+- 界面与插件同代：毛玻璃材质阶梯、首屏一屏分层（最近 14 天/平台模型/按 API Key 折叠）、
+  消费/Token/缓存语义色、日历方向键导航（整块日历只占 1 个 Tab 停靠点）、读屏播报与加载骨架
 
 ## 结构
 ```

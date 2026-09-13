@@ -1,11 +1,12 @@
 /**
- * dsh-usage-stats — browser half.
+ * usage-stats-app — renderer bundle（由 dsh-usage-stats 插件的 `lib/client.js` 同步而来）.
  *
- * Hand-written `__ModuleLoader__` bundle (no build step): a sidebar footer
- * action that opens a floating panel with provider balances, subscription
- * quota windows, a Codex-style blue daily token-usage heatmap, per-day
- * provider/model breakdowns, and cache hit rates. Data comes from the server
- * half's loopback-only endpoints via same-origin fetch.
+ * Hand-written `__ModuleLoader__` bundle (no build step). 与插件版保持同一代：
+ * 玻璃材质阶梯、一屏分层、语义色、日历键盘导航、无障碍、面板预热等改动全部继承，
+ * 只保留两处"独立版专属"差异（下方均以「独立版」注释标出）：
+ *   1. 标题栏控制：置顶 / 最小化 / 最大化 / 关闭（关闭 = 隐藏到托盘，而非收起面板）
+ *   2. Esc 同样走"隐藏窗口"，避免留下空白窗口
+ * 数据来自 boot.js 注入的 /api/usage-stats/* 拦截层（与插件服务端语义一致）。
  */
 window.__ModuleLoader__.load({
 	id: "dsh-usage-stats",
@@ -21,9 +22,16 @@ window.__ModuleLoader__.load({
 		//#region css
 		const css = [
 			// Design tokens (theme-aware glass) + base layout.
-			".usg_layer{flex:none;align-items:center;width:100%;height:49px;margin:8px 0 0;display:flex;position:relative}",
+			// 材质 + 语义令牌挂在外层容器上：面板与 tooltip 都从这里继承（tooltip 要能挂到
+			// 面板之外给徽标用），浅色整组在下面的 data-usg-scheme 规则里覆盖。
+			//
+			// 玻璃配方 = 底色 + 白色罩面（veil）+ 顶边镜面高光 + 细颗粒。
+			// 只做「半透明 + 模糊」在纯色深背景上等于没有材质，必须让表面自身比页面更亮一档，
+			// 再叠一层极细的颗粒，才会读成"磨砂玻璃"而不是"半透明色块"。
+			// 阶梯原则：越靠里的表面越实、越亮（面板 < 卡片 < 内嵌块 < 浮层）。
+			".usg_layer{flex:none;align-items:center;width:100%;height:49px;margin:8px 0 0;display:flex;position:relative;--usg-blue:#4D6BFE;--usg-cost:#F0A64B;--usg-token:#6E8BFF;--usg-cache:#35C46A;--usg-write:#A98BFF;--usg-mat-1:48%;--usg-mat-1-veil:rgb(255 255 255 / 7%);--usg-mat-2:64%;--usg-mat-2-veil:rgb(255 255 255 / 9%);--usg-mat-3:80%;--usg-mat-3-veil:rgb(255 255 255 / 11%);--usg-mat-4:92%;--usg-mat-4-veil:rgb(255 255 255 / 6%);--usg-mat-grain:url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='140' height='140'><filter id='g'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/><feColorMatrix type='saturate' values='0'/></filter><rect width='140' height='140' filter='url(%23g)' opacity='0.06'/></svg>\");--usg-mat-glow:radial-gradient(120% 78% at 0% 0%,rgb(255 255 255 / 8%),transparent 58%);--usg-mat-blur-1:36px;--usg-mat-sat-1:190%;--usg-mat-blur-4:14px;--usg-mat-sat-4:150%;--usg-mat-line:color-mix(in srgb,#fff 14%,transparent);--usg-mat-line-soft:color-mix(in srgb,#fff 8%,transparent);--usg-mat-top:color-mix(in srgb,#fff 24%,transparent);--usg-mat-shadow:0 28px 72px rgba(0,0,0,.55),0 8px 22px rgba(0,0,0,.32),inset 0 1px 0 color-mix(in srgb,#fff 16%,transparent);--usg-line:var(--usg-mat-line);--usg-card:color-mix(in srgb,var(--dsw-alias-bg-base) var(--usg-mat-3),transparent);--usg-cellEmpty:color-mix(in srgb,var(--dsw-alias-label-tertiary) 9%,transparent);--usg-heatBase:transparent}",
 			".usg_footerButtons{align-items:center;width:100%;display:flex}",
-			".usg_badge{width:100%;height:49px;color:var(--dsw-alias-label-primary);cursor:pointer;background:0 0;border:none;border-radius:14px;align-items:center;gap:8px;padding:0 8px 0 6px;font-family:inherit;font-size:14px;display:inline-flex;overflow:hidden}",
+			".usg_badge{width:100%;height:49px;color:var(--dsw-alias-label-primary);cursor:pointer;background:0 0;border:none;border-radius:12px;align-items:center;gap:8px;padding:0 8px 0 6px;font-family:inherit;font-size:14px;display:inline-flex;overflow:hidden}",
 			".usg_badge:hover{background:color-mix(in srgb,var(--usg-blue) 12%,transparent)}",
 			".usg_badge[data-active]{background:color-mix(in srgb,var(--usg-blue) 14%,transparent)}",
 			".usg_badgeLabel{text-overflow:ellipsis;white-space:nowrap;min-width:0;overflow:hidden}",
@@ -31,47 +39,67 @@ window.__ModuleLoader__.load({
 			".usg_layer.usg_rail{width:36px;height:36px;margin:0}",
 			".usg_layer.usg_rail .usg_badge{border-radius:50%;justify-content:center;gap:0;width:36px;height:36px;padding:0}",
 			".usg_layer.usg_rail .usg_footerButtons{flex-direction:column;gap:2px}",
-			".usg_panel{z-index:30;box-sizing:border-box;border:1px solid color-mix(in srgb,var(--dsw-alias-label-tertiary) 16%,transparent);background:color-mix(in srgb,var(--dsw-alias-bg-base) 46%,transparent);backdrop-filter:blur(30px) saturate(180%);-webkit-backdrop-filter:blur(30px) saturate(180%);width:440px;max-width:calc(100vw - 24px);max-height:74vh;box-shadow:0 18px 52px rgba(0,0,0,.14),0 2px 12px rgba(0,0,0,.07),inset 0 1px 0 color-mix(in srgb,#fff 30%,transparent);--dsh-scrollbar-thumb:var(--dsw-alias-scrollbar-bg-l2);--dsh-scrollbar-thumb-hover:var(--dsw-alias-scrollbar-hover-l2);--usg-blue:#4D6BFE;--usg-cellEmpty:color-mix(in srgb,var(--dsw-alias-label-tertiary) 18%,transparent);--usg-heatBase:transparent;--usg-card:color-mix(in srgb,var(--dsw-alias-bg-base) 55%,transparent);--usg-card-strong:color-mix(in srgb,var(--dsw-alias-bg-base) 82%,transparent);--usg-line:color-mix(in srgb,var(--dsw-alias-label-tertiary) 20%,transparent);border-radius:18px;flex-direction:column;display:flex;position:fixed;bottom:128px;left:12px;overflow:hidden;animation:usg-panel-in .16s ease}",
+			// 材质令牌由 .usg_layer 提供；这里只描述面板本身的外观。
+			// backdrop-filter 只留给真正压在页面内容上的表面（面板、tooltip）——
+			// 嵌在面板内部的卡片再模糊一次既看不见、又要多付一次 GPU 合成。
+			// 固定显示比例：面板尺寸在各显示器上保持一致（用户在 27 寸上反馈动态放大后过大），
+			// 只保留"窄窗口不溢出"这一条自适应。
+			".usg_panel{z-index:30;box-sizing:border-box;width:440px;max-width:calc(100vw - 24px);max-height:74vh;border-radius:16px;flex-direction:column;display:flex;position:fixed;bottom:128px;left:12px;overflow:hidden;transform-origin:left bottom;animation:usg-panel-in 380ms cubic-bezier(.22,1.08,.36,1);--dsh-scrollbar-thumb:var(--dsw-alias-scrollbar-bg-l2);--dsh-scrollbar-thumb-hover:var(--dsw-alias-scrollbar-hover-l2);border:1px solid var(--usg-mat-line);background-color:color-mix(in srgb,var(--dsw-alias-bg-base) var(--usg-mat-1),transparent);background-image:var(--usg-mat-grain),var(--usg-mat-glow),linear-gradient(158deg,var(--usg-mat-1-veil),transparent 52%);background-repeat:repeat,no-repeat,no-repeat;background-size:140px 140px,100% 100%,100% 100%;backdrop-filter:blur(var(--usg-mat-blur-1)) saturate(var(--usg-mat-sat-1));-webkit-backdrop-filter:blur(var(--usg-mat-blur-1)) saturate(var(--usg-mat-sat-1));box-shadow:var(--usg-mat-shadow)}",
+			// 顶边一条渐隐的镜面高光：让玻璃有"厚度"，比整条 1px 实线更像真玻璃。
+			".usg_panel::before{content:\"\";position:absolute;left:0;right:0;top:0;height:1px;z-index:1;pointer-events:none;background:linear-gradient(90deg,transparent,var(--usg-mat-top) 16%,var(--usg-mat-top) 84%,transparent)}",
+			// 不支持 backdrop-filter，或用户要求"降低透明度"时：退回接近不透明的表面，先保证可读。
+			"@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.usg_panel{background:color-mix(in srgb,var(--dsw-alias-bg-base) 96%,transparent)}.usg_tip{background:color-mix(in srgb,var(--dsw-alias-bg-base) 99%,transparent)}}",
+			"@media (prefers-reduced-transparency:reduce){.usg_panel{background:color-mix(in srgb,var(--dsw-alias-bg-base) 97%,transparent);backdrop-filter:none;-webkit-backdrop-filter:none}.usg_tip{background:color-mix(in srgb,var(--dsw-alias-bg-base) 99%,transparent);backdrop-filter:none;-webkit-backdrop-filter:none}}",
 			// 浅色主题：热力图层用「淡蓝底 + 品牌蓝加浓」的干净色阶（避免白底混紫的灰脏感）；空格用冷蓝灰。
-			"@media (prefers-color-scheme:light){.usg_panel{--usg-heatBase:#dfe6ff;--usg-cellEmpty:#e9edf7}.usg_cell{box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--usg-blue) 14%,transparent)}}",
+			// 判据优先取 DSH 主题快照（面板上的 data-usg-scheme，见 apply 里的 theme 桥接）：
+			// GUI 的主题偏好与系统偏好可以不一致，媒体查询只作为拿不到主题服务时的回退。
+			// 材质整组换成浅色版：底色更实（浅色下过透会发灰）、描边改冷灰、高光更强。
+			"@media (prefers-color-scheme:light){.usg_layer:not([data-usg-scheme=dark]){--usg-heatBase:#dfe6ff;--usg-cellEmpty:#e9edf7;--usg-cost:#B4650F;--usg-token:#3A5BD9;--usg-cache:#0E7C43;--usg-write:#6D46D9;--usg-mat-1:62%;--usg-mat-1-veil:rgb(255 255 255 / 50%);--usg-mat-2:76%;--usg-mat-2-veil:rgb(255 255 255 / 55%);--usg-mat-3:90%;--usg-mat-3-veil:rgb(255 255 255 / 62%);--usg-mat-4:97%;--usg-mat-4-veil:rgb(255 255 255 / 70%);--usg-mat-glow:radial-gradient(120% 78% at 0% 0%,rgb(255 255 255 / 62%),transparent 58%);--usg-mat-blur-1:32px;--usg-mat-sat-1:175%;--usg-mat-blur-4:12px;--usg-mat-sat-4:145%;--usg-mat-line:color-mix(in srgb,#0f1115 10%,transparent);--usg-mat-line-soft:color-mix(in srgb,#0f1115 6%,transparent);--usg-mat-top:color-mix(in srgb,#fff 92%,transparent);--usg-mat-shadow:0 26px 60px rgba(23,32,51,.20),0 6px 16px rgba(23,32,51,.10),inset 0 1px 0 rgba(255,255,255,.9)}.usg_layer:not([data-usg-scheme=dark]) .usg_cell{box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--usg-blue) 14%,transparent)}}",
+			".usg_layer[data-usg-scheme=light]{--usg-heatBase:#dfe6ff;--usg-cellEmpty:#e9edf7;--usg-cost:#B4650F;--usg-token:#3A5BD9;--usg-cache:#0E7C43;--usg-write:#6D46D9;--usg-mat-1:62%;--usg-mat-1-veil:rgb(255 255 255 / 50%);--usg-mat-2:76%;--usg-mat-2-veil:rgb(255 255 255 / 55%);--usg-mat-3:90%;--usg-mat-3-veil:rgb(255 255 255 / 62%);--usg-mat-4:97%;--usg-mat-4-veil:rgb(255 255 255 / 70%);--usg-mat-glow:radial-gradient(120% 78% at 0% 0%,rgb(255 255 255 / 62%),transparent 58%);--usg-mat-blur-1:32px;--usg-mat-sat-1:175%;--usg-mat-blur-4:12px;--usg-mat-sat-4:145%;--usg-mat-line:color-mix(in srgb,#0f1115 10%,transparent);--usg-mat-line-soft:color-mix(in srgb,#0f1115 6%,transparent);--usg-mat-top:color-mix(in srgb,#fff 92%,transparent);--usg-mat-shadow:0 26px 60px rgba(23,32,51,.20),0 6px 16px rgba(23,32,51,.10),inset 0 1px 0 rgba(255,255,255,.9)}",
+			".usg_layer[data-usg-scheme=light] .usg_cell{box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--usg-blue) 14%,transparent)}",
 			".usg_panel button:focus-visible,.usg_panel select:focus-visible,.usg_panel input:focus-visible{outline:2px solid color-mix(in srgb,var(--usg-blue) 62%,transparent);outline-offset:1px}",
-			"@keyframes usg-panel-in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}",
-			"@media (prefers-reduced-motion:reduce){.usg_panel{animation:none}}",
-			".usg_header{box-sizing:border-box;border-bottom:1px solid color-mix(in srgb,var(--dsw-alias-label-tertiary) 12%,transparent);background:color-mix(in srgb,var(--dsw-alias-bg-base) 70%,transparent);backdrop-filter:blur(18px) saturate(160%);-webkit-backdrop-filter:blur(18px) saturate(160%);flex:none;justify-content:space-between;align-items:center;min-height:46px;padding:11px 14px;display:flex}",
-			".usg_headerLeft{align-items:center;gap:9px;display:flex}",
+			// 面板动效：从徽标所在的左下角「长出来」（位移 + 轻微缩放），380ms 带一点过冲；
+			// 退场更快（250ms + ease-in，与 JS 的 PANEL_EXIT_MS 对齐）并 forwards 停在末帧。
+			"@keyframes usg-panel-in{from{opacity:0;transform:translateY(18px) scale(.94)}55%{opacity:1}to{opacity:1;transform:none}}",
+			"@keyframes usg-panel-out{from{opacity:1;transform:none}to{opacity:0;transform:translateY(10px) scale(.972)}}",
+			"@keyframes usg-body-in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}",
+			".usg_panel[data-closing]{animation:usg-panel-out 250ms cubic-bezier(.4,0,1,1) forwards;pointer-events:none}",
+			"@media (prefers-reduced-motion:reduce){.usg_panel,.usg_panel[data-closing]{animation-duration:1ms}.usg_body{animation:none}.usg_skelBlock::after{animation:none}}",
+			".usg_header{box-sizing:border-box;border-bottom:1px solid var(--usg-mat-line-soft);background-color:color-mix(in srgb,var(--dsw-alias-bg-base) var(--usg-mat-2),transparent);background-image:linear-gradient(180deg,var(--usg-mat-2-veil),transparent);flex:none;justify-content:space-between;align-items:center;min-height:48px;padding:9px 12px;display:flex}",
+			".usg_headerLeft{align-items:center;gap:9px;flex:1;min-width:0;display:flex}",
 			".usg_headerLeft::before{content:\"\";width:3px;height:14px;border-radius:2px;flex:none;background:linear-gradient(180deg,var(--usg-blue),color-mix(in srgb,var(--usg-blue) 40%,transparent))}",
 			".usg_title{color:var(--dsw-alias-label-primary);font-size:14px;font-weight:600;line-height:20px;letter-spacing:.01em}",
-			".usg_headerActions{align-items:center;gap:2px;display:flex}",
-			".usg_iconButton{cursor:pointer;width:28px;height:28px;color:var(--dsw-alias-label-tertiary);background:0 0;border:none;border-radius:8px;justify-content:center;align-items:center;padding:0;display:inline-flex;transition:background .12s ease,color .12s ease}",
-			".usg_iconButton:hover{color:var(--dsw-alias-label-primary);background:color-mix(in srgb,var(--usg-blue) 12%,transparent)}",
-			".usg_body{flex:1;min-height:0;padding:8px 18px 20px;overflow-y:auto;overflow-x:hidden;scrollbar-color:var(--dsw-alias-scrollbar-bg-l2) transparent}",
+			".usg_headerActions{align-items:center;gap:5px;flex:none;display:flex}",
+			".usg_iconButton{cursor:pointer;width:32px;height:32px;color:var(--dsw-alias-label-tertiary);background:0 0;border:none;border-radius:8px;justify-content:center;align-items:center;padding:0;display:inline-flex;transition:background .12s ease,color .12s ease}",
+			".usg_iconButton:hover:not(:disabled){color:var(--dsw-alias-label-primary);background:color-mix(in srgb,var(--usg-blue) 12%,transparent)}",
+			".usg_iconButton:disabled{cursor:default;color:var(--dsw-alias-label-caption)}",
+			".usg_iconButton[data-busy] svg{animation:usg-spin .9s linear infinite}",
+			// 关闭键 hover 变红：三个图标挨在一起时先看清再点，降低误关概率。
+			".usg_iconButton[data-kind=close]:hover{color:var(--dsw-alias-state-error-primary);background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 12%,transparent)}",
+			"@keyframes usg-spin{to{transform:rotate(360deg)}}",
+			// 头部数据新鲜度：紧跟标题、贴着右侧按钮，不必滚到底部才看得到。
+			".usg_headerHint{color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px;margin-left:auto;padding-left:10px;white-space:nowrap;font-variant-numeric:tabular-nums}",
+			".usg_body{flex:1;min-height:0;padding:8px 18px 20px;overflow-y:auto;overflow-x:hidden;scrollbar-color:var(--dsw-alias-scrollbar-bg-l2) transparent;animation:usg-body-in 420ms cubic-bezier(.22,1,.36,1) 80ms both}",
 			".usg_section{margin-top:14px}",
 			".usg_sectionTitle{color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px;margin:0 0 8px;letter-spacing:.04em;display:flex;align-items:center;gap:6px}",
 			".usg_sectionTitle::before{content:\"\";width:3px;height:11px;border-radius:2px;flex:none;background:linear-gradient(180deg,var(--usg-blue),color-mix(in srgb,var(--usg-blue) 40%,transparent));opacity:.9}",
 			".usg_note{color:var(--dsw-alias-label-tertiary);margin:4px 0;font-size:12px;line-height:18px}",
-			".usg_error{background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 10%,transparent);color:var(--dsw-alias-state-error-primary);border:1px solid color-mix(in srgb,var(--dsw-alias-state-error-primary) 22%,transparent);border-radius:12px;justify-content:space-between;align-items:flex-start;gap:8px;margin:4px 0;padding:8px 10px;font-size:12px;line-height:18px;display:flex}",
-			".usg_retry{color:inherit;font:inherit;cursor:pointer;background:0 0;border:none;flex:none;padding:0;font-weight:600}",
-			// Cards — frosted panels with a soft accent wash and inner highlight.
-			".usg_balanceCard{box-sizing:border-box;border:1px solid var(--usg-line);background:linear-gradient(160deg,color-mix(in srgb,var(--usg-blue) 9%,transparent),transparent 48%),color-mix(in srgb,var(--usg-card) 80%,transparent);backdrop-filter:blur(14px) saturate(150%);-webkit-backdrop-filter:blur(14px) saturate(150%);border-radius:16px;padding:12px 14px;display:flex;flex-direction:column;gap:7px;box-shadow:0 2px 12px rgba(0,0,0,.06),inset 0 1px 0 color-mix(in srgb,#fff 16%,transparent)}",
+			".usg_error{background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 10%,transparent);color:var(--dsw-alias-state-error-primary);border:1px solid color-mix(in srgb,var(--dsw-alias-state-error-primary) 22%,transparent);border-radius:12px;justify-content:space-between;align-items:center;gap:9px;margin:4px 0;padding:8px 10px;font-size:12px;line-height:18px;display:flex}",
+			// 长文案（如余额被安全策略拦截的整句说明）最多两行，完整内容留给 title。
+			".usg_errorText{min-width:0;overflow:hidden;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}",
+			".usg_retry{color:inherit;font:inherit;cursor:pointer;background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 12%,transparent);border:1px solid color-mix(in srgb,var(--dsw-alias-state-error-primary) 30%,transparent);border-radius:8px;flex:none;padding:3px 10px;font-size:11px;line-height:16px;font-weight:600;transition:background .12s ease}",
+			".usg_retry:hover{background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 22%,transparent)}",
 			".usg_balanceMain{align-items:baseline;gap:9px;display:flex}",
-			".usg_balanceAmount{color:var(--dsw-alias-label-primary);font-size:25px;font-weight:650;line-height:33px;font-variant-numeric:tabular-nums;font-feature-settings:\"tnum\";letter-spacing:.01em}",
+			".usg_balanceAmount{color:var(--dsw-alias-label-primary);font-size:25px;font-weight:700;line-height:33px;font-variant-numeric:tabular-nums;font-feature-settings:\"tnum\";letter-spacing:.01em}",
 			".usg_balanceStatus{align-items:center;gap:5px;font-size:12px;line-height:18px;display:inline-flex}",
 			".usg_balanceOk{color:var(--dsw-alias-state-success-primary)}",
 			".usg_balanceBad{color:var(--dsw-alias-state-error-primary)}",
 			".usg_balanceRows{color:var(--dsw-alias-label-secondary);flex-direction:column;gap:3px;font-size:12px;line-height:18px;display:flex}",
 			".usg_balanceRowsCompact{color:var(--dsw-alias-label-caption);flex-wrap:wrap;gap:2px 12px;font-size:11px;line-height:16px;font-variant-numeric:tabular-nums;display:flex}",
 			".usg_balanceRow{justify-content:space-between;display:flex}",
-			".usg_providerPicker{align-items:center;gap:8px;margin:6px 0 9px;font-size:12px;line-height:18px;display:flex}",
-			".usg_providerPickerLabel{color:var(--dsw-alias-label-tertiary);flex:none}",
-			".usg_providerSelect{box-sizing:border-box;min-width:0;flex:1;color:var(--dsw-alias-label-primary);background:var(--usg-card);border:1px solid var(--usg-line);border-radius:10px;padding:5px 8px;font:inherit;font-size:12px;line-height:18px;appearance:none;background-image:linear-gradient(45deg,transparent 50%,var(--dsw-alias-label-tertiary) 50%),linear-gradient(135deg,var(--dsw-alias-label-tertiary) 50%,transparent 50%);background-position:calc(100% - 15px) 50%,calc(100% - 11px) 50%;background-size:4px 4px;background-repeat:no-repeat}",
-			".usg_providerSelect:focus{outline:2px solid color-mix(in srgb,var(--usg-blue) 40%,transparent);outline-offset:1px}",
-			".usg_accountGrid{flex-direction:column;gap:9px;display:flex}",
-			".usg_accountCard{--usg-providerAccent:#4D6BFE;box-sizing:border-box;border:1px solid var(--usg-line);background:linear-gradient(150deg,color-mix(in srgb,var(--usg-providerAccent) 10%,transparent),transparent 52%),color-mix(in srgb,var(--usg-card) 80%,transparent);backdrop-filter:blur(14px) saturate(150%);-webkit-backdrop-filter:blur(14px) saturate(150%);border-radius:16px;padding:12px 13px;display:flex;flex-direction:column;gap:10px;box-shadow:0 2px 12px rgba(0,0,0,.06),inset 0 1px 0 color-mix(in srgb,#fff 16%,transparent)}",
+			// Cards — 比面板实一档的玻璃卡：保留品牌色淡染，靠 1px 内高光成形，不再二次模糊。
+			".usg_accountCard{--usg-providerAccent:#4D6BFE;box-sizing:border-box;border:1px solid var(--usg-mat-line);background-color:color-mix(in srgb,var(--dsw-alias-bg-base) var(--usg-mat-2),transparent);background-image:linear-gradient(150deg,color-mix(in srgb,var(--usg-providerAccent) 10%,transparent),transparent 52%),linear-gradient(160deg,var(--usg-mat-2-veil),transparent 62%);border-radius:12px;padding:12px 13px;display:flex;flex-direction:column;gap:10px;box-shadow:inset 0 1px 0 var(--usg-mat-top)}",
 			".usg_accountCard[data-provider=deepseek],.usg_accountCard[data-provider=deepseek-official]{--usg-providerAccent:#4D6BFE}",
-			".usg_accountCard[data-provider=opencode-go]{--usg-providerAccent:#00a67d}",
-			".usg_accountCard[data-provider=zai],.usg_accountCard[data-provider=zai-coding-cn]{--usg-providerAccent:#7656e8}",
-			".usg_accountCard[data-provider=openrouter]{--usg-providerAccent:#6366f1}",
-			".usg_accountCard[data-provider=moonshotai],.usg_accountCard[data-provider=moonshotai-cn],.usg_accountCard[data-provider=kimi],.usg_accountCard[data-provider=kimi-coding]{--usg-providerAccent:#e07a1f}",
 			".usg_accountHead{align-items:center;gap:9px;display:flex}",
 			".usg_accountMark{width:25px;height:25px;color:#fff;background:linear-gradient(135deg,var(--usg-providerAccent),color-mix(in srgb,var(--usg-providerAccent) 62%,#000));border-radius:9px;justify-content:center;align-items:center;font-size:10px;font-weight:700;display:flex;box-shadow:0 4px 14px color-mix(in srgb,var(--usg-providerAccent) 35%,transparent),inset 0 1px 0 rgba(255,255,255,.28)}",
 			".usg_accountMark svg{width:18px;height:18px}",
@@ -80,42 +108,38 @@ window.__ModuleLoader__.load({
 			".usg_accountPlan{color:var(--dsw-alias-label-tertiary);text-overflow:ellipsis;white-space:nowrap;font-size:10px;line-height:14px;overflow:hidden}",
 			".usg_accountStatus{color:var(--dsw-alias-label-tertiary);background:var(--dsw-alias-fill-l2);border-radius:999px;padding:2px 8px;font-size:10px;line-height:16px;white-space:nowrap}",
 			".usg_accountStatus[data-status=ok]{color:var(--usg-providerAccent);background:color-mix(in srgb,var(--usg-providerAccent) 12%,transparent)}",
-			".usg_quotaList{flex-direction:column;gap:9px;display:flex}",
-			".usg_quotaRow{display:flex;flex-direction:column;gap:5px}",
-			".usg_quotaMeta{align-items:baseline;gap:8px;display:flex}",
-			".usg_quotaLabel{color:var(--dsw-alias-label-secondary);font-size:11px;line-height:16px}",
-			".usg_quotaValue{color:var(--dsw-alias-label-primary);margin-left:auto;font-size:12px;font-weight:600;line-height:16px;font-variant-numeric:tabular-nums}",
-			".usg_quotaReset{color:var(--dsw-alias-label-caption);font-size:9px;line-height:14px;white-space:nowrap}",
-			".usg_quotaTrack{height:7px;background:var(--dsw-alias-fill-l2);border-radius:999px;overflow:hidden}",
-			".usg_quotaFill{height:100%;background:linear-gradient(90deg,color-mix(in srgb,var(--usg-providerAccent) 72%,transparent),var(--usg-providerAccent));border-radius:inherit;min-width:2px;transition:width .2s ease;box-shadow:0 0 8px color-mix(in srgb,var(--usg-providerAccent) 40%,transparent)}",
-			".usg_quotaEmpty{color:var(--dsw-alias-label-tertiary);margin:0;font-size:11px;line-height:17px}",
+			".usg_balanceNote{color:var(--dsw-alias-label-tertiary);margin:0;font-size:11px;line-height:17px}",
 			".usg_statsRow{display:flex;gap:9px}",
 			".usg_statsRow.usg_statsBand{flex-wrap:wrap}",
 			".usg_statsRow.usg_bandCompact{gap:5px}",
 			".usg_statsRow.usg_bandCompact .usg_stat{padding:6px 9px;border-radius:12px}",
 			".usg_statsRow.usg_bandCompact .usg_statValue{font-size:13px;line-height:20px}",
 			".usg_statsRow.usg_bandCompact .usg_statLabel{font-size:10px;white-space:nowrap}",
-			".usg_stat{box-sizing:border-box;border:1px solid var(--usg-line);border-radius:14px;flex:1;flex-direction:column;gap:2px;padding:10px 12px;display:flex;background:color-mix(in srgb,var(--usg-card) 86%,transparent);backdrop-filter:blur(12px) saturate(150%);-webkit-backdrop-filter:blur(12px) saturate(150%);box-shadow:inset 0 1px 0 color-mix(in srgb,#fff 16%,transparent)}",
+			".usg_stat{box-sizing:border-box;border:1px solid var(--usg-mat-line-soft);border-radius:12px;flex:1;flex-direction:column;gap:2px;padding:10px 12px;display:flex;background-color:color-mix(in srgb,var(--dsw-alias-bg-base) var(--usg-mat-3),transparent);background-image:linear-gradient(160deg,var(--usg-mat-3-veil),transparent 70%);box-shadow:inset 0 1px 0 var(--usg-mat-top)}",
 			".usg_statValue{color:var(--dsw-alias-label-primary);font-size:16px;font-weight:600;line-height:24px;font-variant-numeric:tabular-nums;font-feature-settings:\"tnum\";letter-spacing:.01em;white-space:nowrap}",
 			".usg_statLabel{color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px}",
+			// 语义色：钱走琥珀、Token 走蓝、请求数保持中性灰 —— 一行 6 格里三类信息一眼分得开。
+			".usg_stat[data-kind=cost] .usg_statValue{color:var(--usg-cost)}",
+			".usg_stat[data-kind=token] .usg_statValue{color:var(--usg-token)}",
+			".usg_platformModelCost{color:var(--usg-cost)}",
 			".usg_hitCaption{color:var(--dsw-alias-label-tertiary);margin-top:7px;font-size:11px;line-height:16px;font-variant-numeric:tabular-nums}",
-			".usg_hitCaption b{color:var(--dsw-alias-label-secondary);font-weight:650}",
+			".usg_hitCaption b{color:var(--usg-cache);font-weight:700}",
 			".usg_heat{overflow-x:hidden;min-width:0;margin:0 -5px;padding:0 5px}",
 			".usg_heatHeader{justify-content:space-between;align-items:center;margin-bottom:8px;display:flex;gap:8px}",
 			".usg_heatHeader .usg_sectionTitle{flex:none;margin:0}",
 			".usg_monthNav{align-items:center;gap:2px;display:flex}",
-			".usg_navButton{cursor:pointer;width:24px;height:24px;color:var(--dsw-alias-label-secondary);background:0 0;border:none;border-radius:7px;justify-content:center;align-items:center;padding:0;display:inline-flex;transition:background .12s ease,color .12s ease}",
+			".usg_navButton{cursor:pointer;width:24px;height:24px;color:var(--dsw-alias-label-secondary);background:0 0;border:none;border-radius:8px;justify-content:center;align-items:center;padding:0;display:inline-flex;transition:background .12s ease,color .12s ease}",
 			".usg_navButton:hover:not(:disabled){color:var(--dsw-alias-label-primary);background:color-mix(in srgb,var(--usg-blue) 12%,transparent)}",
 			".usg_navButton:disabled{color:var(--dsw-alias-label-caption);cursor:default}",
-			".usg_monthTitle{color:var(--dsw-alias-label-primary);min-width:88px;font-size:12px;font-weight:550;line-height:24px;text-align:center;font-variant-numeric:tabular-nums}",
-			".usg_todayButton{cursor:pointer;color:var(--dsw-alias-label-secondary);background:0 0;border:none;border-radius:7px;padding:0 7px;font-size:11px;line-height:24px}",
+			".usg_monthTitle{color:var(--dsw-alias-label-primary);min-width:88px;font-size:12px;font-weight:600;line-height:24px;text-align:center;font-variant-numeric:tabular-nums}",
+			".usg_todayButton{cursor:pointer;color:var(--dsw-alias-label-secondary);background:0 0;border:none;border-radius:8px;padding:0 7px;font-size:11px;line-height:24px}",
 			".usg_todayButton:hover{color:var(--dsw-alias-label-primary);background:color-mix(in srgb,var(--usg-blue) 12%,transparent)}",
 			".usg_monthGrid{flex-direction:column;gap:4px;width:100%;min-width:0;display:flex}",
 			".usg_weekHeader{color:var(--dsw-alias-label-tertiary);grid-template-columns:repeat(7,1fr);gap:4px;min-width:0;display:grid}",
 			".usg_weekLabel{font-size:10px;line-height:16px;text-align:center}",
 			".usg_heatRow{grid-template-columns:repeat(7,1fr);gap:4px;min-width:0;display:grid}",
 			// Heatmap cells — rounded glass tiles; levels come from cellColor.
-			".usg_cell{aspect-ratio:1/1;min-width:0;width:100%;border-radius:7px;border:0;padding:0;cursor:pointer;justify-content:center;align-items:center;font-family:inherit;display:flex;box-shadow:inset 0 0 0 1px rgba(255,255,255,.03);transition:box-shadow .12s ease;position:relative}",
+			".usg_cell{aspect-ratio:1/1;min-width:0;width:100%;border-radius:8px;border:0;padding:0;cursor:pointer;justify-content:center;align-items:center;font-family:inherit;display:flex;box-shadow:inset 0 0 0 1px rgba(255,255,255,.03),inset 0 1px 0 rgba(255,255,255,.05);transition:box-shadow .12s ease;position:relative}",
 			// 只做描边+光晕，不做 transform 缩放：缩放的格子会撑出可滚动溢出区，
 			// 在 .usg_heat(overflow-x:auto) 的最后一列产生横向滚条。
 			".usg_cell:hover{box-shadow:inset 0 0 0 1px var(--dsw-alias-label-secondary),0 5px 14px color-mix(in srgb,var(--usg-blue) 32%,transparent);z-index:1}",
@@ -132,7 +156,7 @@ window.__ModuleLoader__.load({
 			".usg_day:last-child{border-bottom:0}",
 			".usg_day:hover{background:color-mix(in srgb,var(--usg-blue) 9%,transparent)}",
 			".usg_dayDate{color:var(--dsw-alias-label-secondary);flex:none;width:104px;font-size:12px;line-height:20px;font-variant-numeric:tabular-nums}",
-			".usg_dayTokens{color:var(--dsw-alias-label-primary);flex:none;font-size:12px;line-height:20px;font-variant-numeric:tabular-nums;font-weight:550}",
+			".usg_dayTokens{color:var(--dsw-alias-label-primary);flex:none;font-size:12px;line-height:20px;font-variant-numeric:tabular-nums;font-weight:600}",
 			".usg_dayHit{color:var(--dsw-alias-label-tertiary);flex:none;width:52px;font-size:11px;line-height:20px;font-variant-numeric:tabular-nums;text-align:right}",
 			".usg_dayBar{background:linear-gradient(90deg,color-mix(in srgb,var(--usg-blue) 72%,transparent),var(--usg-blue));border-radius:999px;height:7px;flex:1;min-width:4px;box-shadow:0 0 8px color-mix(in srgb,var(--usg-blue) 38%,transparent)}",
 			".usg_detailHeader{align-items:center;gap:8px;display:flex}",
@@ -144,7 +168,7 @@ window.__ModuleLoader__.load({
 			".usg_modelRow{box-sizing:border-box;border-bottom:1px solid color-mix(in srgb,var(--dsw-alias-label-tertiary) 17%,transparent);padding:8px 0;display:flex;flex-direction:column;gap:5px}",
 			".usg_modelRow:last-child{border-bottom:0}",
 			".usg_modelHead{align-items:center;gap:8px;display:flex}",
-			".usg_modelName{color:var(--dsw-alias-label-primary);min-width:0;text-overflow:ellipsis;white-space:nowrap;flex:1;font-size:12px;font-weight:550;line-height:18px;overflow:hidden}",
+			".usg_modelName{color:var(--dsw-alias-label-primary);min-width:0;text-overflow:ellipsis;white-space:nowrap;flex:1;font-size:12px;font-weight:600;line-height:18px;overflow:hidden}",
 			".usg_modelTokens{color:var(--dsw-alias-label-primary);flex:none;font-size:12px;line-height:18px;font-variant-numeric:tabular-nums}",
 			".usg_modelHit{color:var(--dsw-alias-label-tertiary);flex:none;width:56px;font-size:11px;line-height:18px;font-variant-numeric:tabular-nums;text-align:right}",
 			".usg_modelBarTrack{background:var(--dsw-alias-fill-l2);border-radius:999px;height:6px;overflow:hidden}",
@@ -165,7 +189,7 @@ window.__ModuleLoader__.load({
 			".usg_dayRingTrack{fill:none;stroke:color-mix(in srgb,var(--dsw-alias-label-tertiary) 14%,transparent);stroke-width:12}",
 			".usg_dayRingArc{fill:none;stroke-linecap:butt;stroke-width:12}",
 			".usg_dayRingCenter{position:absolute;inset:0;flex-direction:column;align-items:center;justify-content:center;gap:2px;display:flex}",
-			".usg_dayRingCenter b{color:var(--dsw-alias-label-primary);font-size:16px;font-weight:650;font-variant-numeric:tabular-nums}",
+			".usg_dayRingCenter b{color:var(--dsw-alias-label-primary);font-size:16px;font-weight:700;font-variant-numeric:tabular-nums}",
 			".usg_dayRingCenter span{color:var(--dsw-alias-label-tertiary);font-size:10px;line-height:14px}",
 			".usg_dayDivider{height:1px;flex:none;background:color-mix(in srgb,var(--dsw-alias-label-tertiary) 14%,transparent);margin:10px 0;width:100%}",
 			".usg_hourBlock{margin:12px 0 4px}",
@@ -181,8 +205,8 @@ window.__ModuleLoader__.load({
 			".usg_dayKeysCaption{color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px;margin-bottom:2px}",
 			".usg_dayKeyRow{align-items:baseline;gap:8px;border-bottom:1px solid color-mix(in srgb,var(--dsw-alias-label-tertiary) 17%,transparent);padding:7px 0;font-size:11px;line-height:18px;display:flex}",
 			".usg_dayKeyRow:last-child{border-bottom:0}",
-			".usg_dayKeyName{min-width:0;text-overflow:ellipsis;white-space:nowrap;overflow:hidden;flex:1;color:var(--dsw-alias-label-primary);font-weight:550}",
-			".usg_dayKeyTokens{color:var(--dsw-alias-label-primary);flex:none;font-size:12px;font-weight:650;font-variant-numeric:tabular-nums}",
+			".usg_dayKeyName{min-width:0;text-overflow:ellipsis;white-space:nowrap;overflow:hidden;flex:1;color:var(--dsw-alias-label-primary);font-weight:600}",
+			".usg_dayKeyTokens{color:var(--dsw-alias-label-primary);flex:none;font-size:12px;font-weight:700;font-variant-numeric:tabular-nums}",
 			".usg_dayKeyMeta{color:var(--dsw-alias-label-tertiary);flex:none;font-size:10px;font-variant-numeric:tabular-nums}",
 			".usg_compTrack{box-sizing:border-box;display:flex;width:100%;height:8px;gap:1px;border-radius:999px;overflow:hidden;background:color-mix(in srgb,var(--dsw-alias-label-tertiary) 14%,transparent)}",
 			".usg_compTrack.usg_compSmall{height:5px}",
@@ -190,25 +214,27 @@ window.__ModuleLoader__.load({
 			".usg_compLegend{align-items:center;flex-wrap:wrap;gap:4px 10px;margin-top:5px;font-size:10px;line-height:14px;color:var(--dsw-alias-label-tertiary);display:flex}",
 			".usg_compLegendItem{align-items:center;gap:4px;display:inline-flex}",
 			".usg_compLegendItem i{width:8px;height:8px;border-radius:3px;flex:none;box-shadow:0 0 4px color-mix(in srgb,var(--usg-blue) 30%,transparent)}",
-			".usg_compLegendItem b{color:var(--dsw-alias-label-primary);font-weight:550;font-variant-numeric:tabular-nums}",
-			".usg_platformCard{box-sizing:border-box;border:1px solid var(--usg-line);background:linear-gradient(160deg,color-mix(in srgb,var(--usg-blue) 7%,transparent),transparent 46%),color-mix(in srgb,var(--usg-card) 80%,transparent);backdrop-filter:blur(14px) saturate(150%);-webkit-backdrop-filter:blur(14px) saturate(150%);border-radius:16px;padding:12px 14px;display:flex;flex-direction:column;gap:10px;box-shadow:0 2px 12px rgba(0,0,0,.06),inset 0 1px 0 color-mix(in srgb,#fff 16%,transparent)}",
+			".usg_compLegendItem b{color:var(--dsw-alias-label-primary);font-weight:600;font-variant-numeric:tabular-nums}",
+			".usg_platformCard{box-sizing:border-box;border:1px solid var(--usg-mat-line);background-color:color-mix(in srgb,var(--dsw-alias-bg-base) var(--usg-mat-2),transparent);background-image:linear-gradient(160deg,color-mix(in srgb,var(--usg-blue) 7%,transparent),transparent 46%),linear-gradient(160deg,var(--usg-mat-2-veil),transparent 62%);border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:10px;box-shadow:inset 0 1px 0 var(--usg-mat-top)}",
 			".usg_platformHint{color:var(--dsw-alias-label-tertiary);margin:0;font-size:11px;line-height:17px}",
-			".usg_platformModel{box-sizing:border-box;border:1px solid var(--usg-line);border-radius:12px;padding:6px 10px;display:flex;flex-direction:column;gap:4px;background:color-mix(in srgb,var(--usg-card) 82%,transparent);backdrop-filter:blur(10px) saturate(150%);-webkit-backdrop-filter:blur(10px) saturate(150%);box-shadow:inset 0 1px 0 color-mix(in srgb,#fff 14%,transparent)}",
+			".usg_platformModel{box-sizing:border-box;border:1px solid var(--usg-mat-line-soft);border-radius:12px;padding:6px 10px;display:flex;flex-direction:column;gap:4px;background-color:color-mix(in srgb,var(--dsw-alias-bg-base) var(--usg-mat-3),transparent);background-image:linear-gradient(160deg,var(--usg-mat-3-veil),transparent 70%);box-shadow:inset 0 1px 0 var(--usg-mat-top)}",
 			".usg_platformModelHead{align-items:center;gap:8px;display:flex}",
-			".usg_platformModelName{color:var(--dsw-alias-label-primary);min-width:0;text-overflow:ellipsis;white-space:nowrap;flex:1;font-size:12px;font-weight:550;line-height:18px;overflow:hidden}",
+			".usg_platformModelName{color:var(--dsw-alias-label-primary);min-width:0;text-overflow:ellipsis;white-space:nowrap;flex:1;font-size:12px;font-weight:600;line-height:18px;overflow:hidden}",
 			".usg_platformModelCost{color:var(--dsw-alias-label-primary);flex:none;font-size:12px;line-height:18px;font-variant-numeric:tabular-nums}",
 			".usg_platformTokenLine{align-items:center;gap:8px;display:flex}",
-			".usg_platformTokenCount{color:var(--dsw-alias-label-primary);flex:none;font-size:11px;line-height:16px;font-variant-numeric:tabular-nums;font-weight:550}",
+			".usg_platformTokenCount{color:var(--dsw-alias-label-primary);flex:none;font-size:11px;line-height:16px;font-variant-numeric:tabular-nums;font-weight:600}",
 			".usg_platformChartNote{color:var(--dsw-alias-label-tertiary);font-size:10px;line-height:16px;font-variant-numeric:tabular-nums}",
 			".usg_platformDivider{height:1px;background:color-mix(in srgb,var(--dsw-alias-label-tertiary) 14%,transparent);margin:2px 0 10px;flex:none}",
 			".usg_settingsActions{align-items:center;gap:7px;margin-top:9px;display:flex;flex-wrap:wrap}",
-			".usg_settingsButton{cursor:pointer;box-sizing:border-box;border:1px solid var(--usg-line);background:var(--usg-card);color:var(--dsw-alias-label-primary);border-radius:10px;padding:5px 11px;font:inherit;font-size:12px;line-height:18px;transition:background .12s ease,transform .08s ease}",
+			".usg_settingsButton{cursor:pointer;box-sizing:border-box;border:1px solid var(--usg-mat-line-soft);background-color:var(--usg-card);background-image:linear-gradient(160deg,var(--usg-mat-3-veil),transparent 70%);color:var(--dsw-alias-label-primary);border-radius:8px;padding:5px 11px;font:inherit;font-size:12px;line-height:18px;transition:background .12s ease,transform .08s ease}",
 			".usg_settingsButton:hover:not(:disabled){background:color-mix(in srgb,var(--usg-blue) 10%,transparent);transform:translateY(-1px)}",
 			".usg_settingsButton:disabled{opacity:.5;cursor:default;transform:none}",
 			".usg_settingsButton[data-kind=primary]{color:#fff;background:linear-gradient(135deg,var(--usg-blue),color-mix(in srgb,var(--usg-blue) 68%,#000));border-color:transparent;box-shadow:0 4px 14px color-mix(in srgb,var(--usg-blue) 38%,transparent)}",
 			".usg_settingsButton[data-kind=danger]{color:var(--dsw-alias-state-error-primary);border:1px solid color-mix(in srgb,var(--dsw-alias-state-error-primary) 30%,transparent)}",
-			".usg_settingsInput{box-sizing:border-box;width:100%;color:var(--dsw-alias-label-primary);background:var(--usg-card);border:1px solid var(--usg-line);border-radius:10px;padding:6px 9px;font:inherit;font-size:12px;line-height:18px}",
+			".usg_settingsInput{box-sizing:border-box;width:100%;color:var(--dsw-alias-label-primary);background-color:var(--usg-card);background-image:linear-gradient(160deg,var(--usg-mat-3-veil),transparent 70%);border:1px solid var(--usg-mat-line-soft);border-radius:8px;padding:6px 9px;font:inherit;font-size:12px;line-height:18px}",
 			".usg_settingsInput:focus{outline:2px solid color-mix(in srgb,var(--usg-blue) 40%,transparent);outline-offset:1px}",
+			// 未保存的输入用琥珀描边提示，保存后自动消失。
+			".usg_settingsInput[data-dirty]{border-color:color-mix(in srgb,var(--usg-cost) 55%,transparent)}",
 			".usg_disclosureHead{cursor:pointer;box-sizing:border-box;width:100%;align-items:center;gap:3px;background:0 0;border:none;padding:2px 0;font:inherit;text-align:left;display:flex;color:inherit}",
 			".usg_disclosureHead:hover .usg_sectionTitle{color:var(--dsw-alias-label-secondary)}",
 			".usg_disclosureHead .usg_sectionTitle{flex:1;margin:0;color:var(--dsw-alias-label-secondary)}",
@@ -216,7 +242,29 @@ window.__ModuleLoader__.load({
 			".usg_disclosureChevron[data-open]{transform:rotate(90deg)}",
 			".usg_disclosureCount{color:var(--dsw-alias-label-tertiary);font-size:10px;line-height:16px;font-variant-numeric:tabular-nums}",
 			".usg_disclosureHead + .usg_days{margin-top:7px}",
-			".usg_footerNote{color:var(--dsw-alias-label-caption);margin-top:11px;font-size:11px;line-height:16px;font-variant-numeric:tabular-nums}"
+			".usg_footerNote{color:var(--dsw-alias-label-caption);margin-top:11px;font-size:11px;line-height:16px;font-variant-numeric:tabular-nums}",
+			// 首屏骨架：几何尺寸对齐真实的「热力图 + 最近 14 天」，加载完成时不跳版。
+			".usg_skel{flex-direction:column;gap:13px;display:flex}",
+			".usg_skelGrid{grid-template-columns:repeat(7,1fr);gap:4px;display:grid}",
+			".usg_skelCell{aspect-ratio:1/1;border-radius:8px}",
+			".usg_skelList{flex-direction:column;gap:7px;display:flex}",
+			".usg_skelRow{height:30px;border-radius:8px}",
+			".usg_skelBlock{background:color-mix(in srgb,var(--dsw-alias-label-tertiary) 13%,transparent);position:relative;overflow:hidden}",
+			".usg_skelBlock::after{content:\"\";position:absolute;inset:0;transform:translateX(-100%);background:linear-gradient(90deg,transparent,color-mix(in srgb,#fff 20%,transparent),transparent);animation:usg-shimmer 1.5s ease-in-out infinite}",
+			"@keyframes usg-shimmer{to{transform:translateX(100%)}}",
+			// 视图切换：进入日详情/设置自右推入，返回自左推入，给下钻一个方向感。
+			// data-dir 只在切换时出现（首次展开由 usg-body-in 负责淡入），key={view}
+			// 让容器重挂载，动画得以重播，同时把滚动位置带回顶部。
+			".usg_body[data-dir=forward]{animation:usg-view-forward 260ms cubic-bezier(.22,1,.36,1) both}",
+			".usg_body[data-dir=back]{animation:usg-view-back 260ms cubic-bezier(.22,1,.36,1) both}",
+			"@keyframes usg-view-forward{from{opacity:0;transform:translateX(14px)}to{opacity:1;transform:none}}",
+			"@keyframes usg-view-back{from{opacity:0;transform:translateX(-14px)}to{opacity:1;transform:none}}",
+			// 容器是被程序聚焦的（打开面板 / 切换视图），不要画焦点环。
+			".usg_panel:focus,.usg_body:focus{outline:none}",
+			// 面板自带 tooltip：原生 title 有约 1 秒延迟，且样式由系统决定；这里与面板同一套毛玻璃。
+			".usg_tip{position:absolute;z-index:40;pointer-events:none;max-width:260px;color:var(--dsw-alias-label-primary);background-color:color-mix(in srgb,var(--dsw-alias-bg-base) var(--usg-mat-4),transparent);background-image:linear-gradient(160deg,var(--usg-mat-4-veil),transparent 70%);border:1px solid var(--usg-mat-line);border-radius:10px;padding:5px 9px;font-size:11px;line-height:16px;font-variant-numeric:tabular-nums;box-shadow:0 10px 28px rgba(0,0,0,.28),inset 0 1px 0 var(--usg-mat-top);backdrop-filter:blur(var(--usg-mat-blur-4)) saturate(var(--usg-mat-sat-4));-webkit-backdrop-filter:blur(var(--usg-mat-blur-4)) saturate(var(--usg-mat-sat-4));transform:translate(-50%,-100%);animation:usg-tip-in 120ms ease-out both}",
+			"@keyframes usg-tip-in{from{opacity:0;transform:translate(-50%,calc(-100% + 4px))}to{opacity:1;transform:translate(-50%,-100%)}}",
+			"@media (prefers-reduced-motion:reduce){.usg_tip{animation-duration:1ms}.usg_body[data-dir]{animation-duration:1ms}}"
 		].join("");
 		const tagId = "dsh-usage-stats/UsageStats.module.css";
 		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId) + "]") === null) {
@@ -245,10 +293,6 @@ window.__ModuleLoader__.load({
 			note: "usg_note",
 			error: "usg_error",
 			retry: "usg_retry",
-			providerPicker: "usg_providerPicker",
-			providerPickerLabel: "usg_providerPickerLabel",
-			providerSelect: "usg_providerSelect",
-			accountGrid: "usg_accountGrid",
 			accountCard: "usg_accountCard",
 			accountHead: "usg_accountHead",
 			accountMark: "usg_accountMark",
@@ -256,16 +300,7 @@ window.__ModuleLoader__.load({
 			accountName: "usg_accountName",
 			accountPlan: "usg_accountPlan",
 			accountStatus: "usg_accountStatus",
-			quotaList: "usg_quotaList",
-			quotaRow: "usg_quotaRow",
-			quotaMeta: "usg_quotaMeta",
-			quotaLabel: "usg_quotaLabel",
-			quotaValue: "usg_quotaValue",
-			quotaReset: "usg_quotaReset",
-			quotaTrack: "usg_quotaTrack",
-			quotaFill: "usg_quotaFill",
-			quotaEmpty: "usg_quotaEmpty",
-			balanceCard: "usg_balanceCard",
+			balanceNote: "usg_balanceNote",
 			balanceMain: "usg_balanceMain",
 			balanceAmount: "usg_balanceAmount",
 			balanceStatus: "usg_balanceStatus",
@@ -363,7 +398,16 @@ window.__ModuleLoader__.load({
 			disclosureHead: "usg_disclosureHead",
 			disclosureChevron: "usg_disclosureChevron",
 			disclosureCount: "usg_disclosureCount",
-			footerNote: "usg_footerNote"
+			footerNote: "usg_footerNote",
+			headerHint: "usg_headerHint",
+			errorText: "usg_errorText",
+			skel: "usg_skel",
+			skelGrid: "usg_skelGrid",
+			skelCell: "usg_skelCell",
+			skelList: "usg_skelList",
+			skelRow: "usg_skelRow",
+			skelBlock: "usg_skelBlock",
+			tip: "usg_tip"
 		};
 		//#endregion
 
@@ -377,27 +421,6 @@ window.__ModuleLoader__.load({
 			const month = String(d.getUTCMonth() + 1).padStart(2, "0");
 			const day = String(d.getUTCDate()).padStart(2, "0");
 			return `${d.getUTCFullYear()}-${month}-${day}`;
-		}
-
-		/**
-		 * `YYYY-MM-DD` in UTC+0 — retained for potential fallback paths; the
-		 * platform interface now returns GMT+8-aligned buckets, so platform and
-		 * local session data share the GMT+8 display convention.
-		 */
-		function utcKey(date) {
-			const month = String(date.getUTCMonth() + 1).padStart(2, "0");
-			const day = String(date.getUTCDate()).padStart(2, "0");
-			return `${date.getUTCFullYear()}-${month}-${day}`;
-		}
-
-		/** Today's UTC+0 `YYYY-MM-DD` (fallback convention). */
-		function utcTodayKey() {
-			return utcKey(new Date());
-		}
-
-		/** Current month key `YYYY-MM` in UTC+0 (fallback convention). */
-		function utcMonthKey() {
-			return utcKey(new Date()).slice(0, 7);
 		}
 
 		/** `YYYY-MM-DD` in GMT+8 (local session data display timezone). */
@@ -464,15 +487,27 @@ window.__ModuleLoader__.load({
 			};
 		}
 
+		/** Panel exit duration in ms — keep in sync with `usg-panel-out` in the stylesheet. */
+		const PANEL_EXIT_MS = 250;
+
+		/** Whether the OS asks for reduced motion (the exit delay then collapses to 0). */
+		function prefersReducedMotion() {
+			return typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches === true;
+		}
+
 		/**
-		 * Normalize server-provided account metadata for the single selector.
-		 * Adapter/mode selection belongs to the server registry, never UI guesses.
+		 * Resolve the presentation color scheme used by the heatmap scale. DSH owns
+		 * the theme preference (`system` / `light` / `dark`) and it can differ from
+		 * the OS scheme, so the theme snapshot wins; the media query is only the
+		 * fallback for when no theme bridge is mounted.
 		 */
-		function buildProviderChoices(providers) {
-			return Array.isArray(providers) ? providers.map((provider) => ({
-				...provider,
-				accountMode: provider.accountMode ?? "balance"
-			})) : [];
+		function resolveColorScheme(themeBridge) {
+			if (themeBridge !== void 0 && themeBridge !== null && typeof themeBridge.scheme === "function") {
+				const scheme = themeBridge.scheme();
+				if (scheme === "light" || scheme === "dark") return scheme;
+			}
+			if (typeof matchMedia === "function" && matchMedia("(prefers-color-scheme: dark)").matches) return "dark";
+			return "light";
 		}
 
 		/** Locale-safe template interpolation: `t("key", {a})` replaces `{a}`. */
@@ -553,16 +588,45 @@ window.__ModuleLoader__.load({
 		}
 		//#endregion
 
+		/**
+		 * First-load placeholder. The shape mirrors the real heatmap grid plus the
+		 * recent-14-days rows so the panel does not jump when the data lands.
+		 */
+		function UsageSkeleton() {
+			const cells = [];
+			for (let index = 0; index < 35; index += 1) cells.push(index);
+			const rows = [0, 1, 2];
+			return react_jsx_runtime.jsxs("div", {
+				className: S.skel,
+				"aria-hidden": true,
+				children: [
+					react_jsx_runtime.jsx("div", {
+						className: S.skelGrid,
+						children: cells.map((index) => react_jsx_runtime.jsx("div", { className: `${S.skelBlock} ${S.skelCell}` }, `skel-cell-${index}`))
+					}),
+					react_jsx_runtime.jsx("div", {
+						className: S.skelList,
+						children: rows.map((index) => react_jsx_runtime.jsx("div", { className: `${S.skelBlock} ${S.skelRow}` }, `skel-row-${index}`))
+					})
+				]
+			});
+		}
+
 		//#region UsageStatsPanel
 		/**
 		 * Sidebar footer action: badge + floating panel with balance and usage.
 		 * @param props - `wide` from the sidebar shell, `t` bound by the slot runtime.
 		 */
-		function UsageStatsPanel({ wide, t }) {
+		function UsageStatsPanel({ wide, t, theme: themeBridge }) {
 			const translate = (key, params) => interpolate(t !== void 0 ? t(key) : key, params);
+			// `open` is the logical state that drives loading/polling; `mounted` keeps
+			// the element in the DOM through the exit animation that `closing` drives.
 			const [open, setOpen] = react.useState(false);
-			// 独立版：窗口置顶状态（主进程持久化；浏览器模式下无 usageApp 桥时仅本地切换）。
-			const [pinned, setPinned] = react.useState(false);
+			const [mounted, setMounted] = react.useState(false);
+			const [closing, setClosing] = react.useState(false);
+			const [refreshing, setRefreshing] = react.useState(false);
+			const [scheme, setScheme] = react.useState(() => resolveColorScheme(themeBridge));
+			const closeTimerRef = react.useRef(null);
 			const [usage, setUsage] = react.useState(null);
 			const [usageError, setUsageError] = react.useState(null);
 			const [selectedDay, setSelectedDay] = react.useState(null);
@@ -584,24 +648,147 @@ window.__ModuleLoader__.load({
 			const [tokenJustSaved, setTokenJustSaved] = react.useState(false);
 			const [syncRunning, setSyncRunning] = react.useState(false);
 			const [apiKeysOpen, setApiKeysOpen] = react.useState(false);
+			// 独立版专属：窗口置顶状态（无边框窗口的图钉按钮）。
+			const [pinned, setPinned] = react.useState(false);
+			// A1 分层：这两个明细块默认折叠，首屏留给余额/统计/热力图。
+			const [recentOpen, setRecentOpen] = react.useState(false);
+			const [platformOpen, setPlatformOpen] = react.useState(false);
 			const [dayDetail, setDayDetail] = react.useState(null);
 			const [dayDetailLoading, setDayDetailLoading] = react.useState(false);
 			const dayDetailSeqRef = react.useRef(0);
 			const recentPlatSeqRef = react.useRef(0);
 			const mountedRef = react.useRef(true);
+			const panelRef = react.useRef(null);
+			const layerRef = react.useRef(null);
+			const badgeRef = react.useRef(null);
+			const bodyRef = react.useRef(null);
+			const previousViewRef = react.useRef("main");
+			const [viewDir, setViewDir] = react.useState(null);
+			const [tip, setTip] = react.useState(null);
 			const usageLoaderRef = react.useRef(null);
 			const accountLoaderRef = react.useRef(null);
 			const platformLoaderRef = react.useRef(null);
 			if (usageLoaderRef.current === null) usageLoaderRef.current = createLoader();
 			if (accountLoaderRef.current === null) accountLoaderRef.current = createLoader();
 			if (platformLoaderRef.current === null) platformLoaderRef.current = createLoader();
+
+			// 打开/关闭：关闭先播退场动效（data-closing）再卸载节点；这期间「逻辑上
+			// 已关闭」，所以轮询与数据请求立即停止，不会在退场动画里偷偷刷新。
+			const openPanel = react.useCallback(() => {
+				if (closeTimerRef.current !== null) {
+					window.clearTimeout(closeTimerRef.current);
+					closeTimerRef.current = null;
+				}
+				// 每次展开都从「无方向」开始：面板本身的展开动效负责第一印象，
+				// 上次下钻留下的方向不该在重新打开时重播。
+				setViewDir(null);
+				setClosing(false);
+				setMounted(true);
+				setOpen(true);
+			}, []);
+
+			const closePanel = react.useCallback(() => {
+				setOpen(false);
+				setClosing(true);
+				setTip(null);
+				if (closeTimerRef.current !== null) window.clearTimeout(closeTimerRef.current);
+				closeTimerRef.current = window.setTimeout(() => {
+					closeTimerRef.current = null;
+					// 焦点归还：只有在面板内部持有焦点时才把焦点送回徽标，
+					// 避免用户点了页面别处却被拉回侧边栏。
+					const panel = panelRef.current;
+					const active = typeof document === "undefined" ? null : document.activeElement;
+					const returnFocus = panel !== null && active !== null && panel.contains(active);
+					setMounted(false);
+					setClosing(false);
+					if (returnFocus) badgeRef.current?.focus?.({ preventScroll: true });
+				}, prefersReducedMotion() ? 0 : PANEL_EXIT_MS);
+			}, []);
+
+			react.useEffect(() => () => {
+				if (closeTimerRef.current !== null) window.clearTimeout(closeTimerRef.current);
+			}, []);
+
+			// ---- 独立版专属：无边框窗口的 Tauri 桥 ----------------------------------
+			/** 调用 Tauri 命令；浏览器模式（无 __TAURI__）返回 false，调用方据此回退。 */
+			const tauriInvoke = react.useCallback((command, args) => {
+				if (typeof window === "undefined" || typeof window.__TAURI__?.core?.invoke !== "function") return false;
+				window.__TAURI__.core.invoke(command, args).catch(() => { /* 权限缺失时保持 UI 可用 */ });
+				return true;
+			}, []);
+
+			/** × 与 Esc 都表示"隐藏窗口到托盘"（Rust 侧 CloseRequested 会 prevent_close + hide），
+			 *  只有在没有 Tauri 桥的浏览器预览里才退回"收起面板"。 */
+			const dismissPanel = react.useCallback(() => {
+				if (tauriInvoke("plugin:window|close")) return;
+				closePanel();
+			}, [closePanel, tauriInvoke]);
+
+			/** 置顶开关：面板是全窗口应用，置顶后不会被其他窗口盖住。 */
+			const togglePin = react.useCallback(() => {
+				setPinned((value) => {
+					const next = !value;
+					tauriInvoke("plugin:window|set_always_on_top", { value: next });
+					return next;
+				});
+			}, [tauriInvoke]);
+			// ---- 独立版专属结束 ----------------------------------------------------
+
+			// 视图（主视图 / 日详情 / 设置）：下钻时记下方向，用于切换动效与焦点落点。
+			const view = showSettings ? "settings" : selectedDay !== null ? "day" : "main";
+			react.useEffect(() => {
+				if (previousViewRef.current === view) return;
+				previousViewRef.current = view;
+				setViewDir(view === "main" ? "back" : "forward");
+			}, [view]);
+
+			// 视图切换后：把焦点交给新视图（键盘与读屏用户不会停留在已卸载的节点上），
+			// 并收起可能残留的 tooltip。滚动位置由容器重挂载自然回到顶部。
+			react.useEffect(() => {
+				if (viewDir === null) return;
+				bodyRef.current?.focus?.({ preventScroll: true });
+				setTip(null);
+			}, [view, viewDir]);
+
+			// 面板展开后把焦点移入面板（Esc 关闭、Tab 直接从面板内部开始）。
+			react.useEffect(() => {
+				if (!mounted) return;
+				panelRef.current?.focus?.({ preventScroll: true });
+			}, [mounted]);
+
+			// 主题跟随：DSH 的主题偏好（system/light/dark）可以与系统偏好不同，
+			// 所以热力图色阶的判据取主题快照，而不是 prefers-color-scheme。
+			react.useEffect(() => {
+				setScheme(resolveColorScheme(themeBridge));
+				if (themeBridge === void 0 || themeBridge === null || typeof themeBridge.subscribe !== "function") return void 0;
+				return themeBridge.subscribe(() => setScheme(resolveColorScheme(themeBridge)));
+			}, [themeBridge]);
+
+			// Esc：设置视图与日详情逐级返回；主视图下独立版是"隐藏窗口"（dismissPanel）。
+			react.useEffect(() => {
+				if (!mounted || typeof document === "undefined") return;
+				const onKeyDown = (event) => {
+					if (event.key !== "Escape" || event.defaultPrevented === true) return;
+					if (showSettings) {
+						setShowSettings(false);
+						return;
+					}
+					if (selectedDay !== null) {
+						setSelectedDay(null);
+						return;
+					}
+					dismissPanel();
+				};
+				document.addEventListener("keydown", onKeyDown);
+				return () => document.removeEventListener("keydown", onKeyDown);
+			}, [mounted, showSettings, selectedDay, dismissPanel]);
 			// 只保留 DeepSeek：账户区固定为官方 DeepSeek，不再枚举/切换供应商。
 			const DEEPSEEK_PROVIDER = { id: "deepseek-official", displayName: "DeepSeek", accountMode: "balance" };
 
-			const loadUsage = react.useCallback(() => {
+			const loadUsage = react.useCallback((force = false) => {
 				const seq = usageLoaderRef.current.start();
 				setUsageError(null);
-				fetchJson("/api/usage-stats/usage").then((payload) => {
+				return fetchJson(`/api/usage-stats/usage${force ? "?refresh=1" : ""}`).then((payload) => {
 					if (!mountedRef.current || !usageLoaderRef.current.isCurrent(seq)) return;
 					if (payload.ok !== true) {
 						setUsageError(payload.message ?? "usage aggregation failed");
@@ -626,7 +813,7 @@ window.__ModuleLoader__.load({
 					return;
 				}
 				const query = `?provider=${encodeURIComponent(target)}${force ? "&refresh=1" : ""}`;
-				fetchJson(`/api/usage-stats/account${query}`).then((payload) => {
+				return fetchJson(`/api/usage-stats/account${query}`).then((payload) => {
 					if (!mountedRef.current || !accountLoaderRef.current.isCurrent(seq)) return;
 					if (payload.ok !== true) {
 						setAccountError(payload.message ?? "account fetch failed");
@@ -653,7 +840,7 @@ window.__ModuleLoader__.load({
 					return;
 				}
 				const query = `?month=${month}&year=${year}${force ? "&refresh=1" : ""}`;
-				fetchJson(`/api/usage-stats/platform${query}`).then((payload) => {
+				return fetchJson(`/api/usage-stats/platform${query}`).then((payload) => {
 					if (!mountedRef.current || !platformLoaderRef.current.isCurrent(seq)) return;
 					if (payload.ok !== true) {
 						// Unconfigured usage token: keep the quiet state so the
@@ -678,7 +865,7 @@ window.__ModuleLoader__.load({
 
 			// 平台全部历史 token 合计（平台口径的“累计”）；月度回扫由服务端缓存。
 			const loadPlatformTotal = react.useCallback((force = false) => {
-				fetchJson(`/api/usage-stats/platform/total${force ? "?refresh=1" : ""}`).then((payload) => {
+				return fetchJson(`/api/usage-stats/platform/total${force ? "?refresh=1" : ""}`).then((payload) => {
 					if (!mountedRef.current || payload?.ok !== true) return;
 					setPlatformTotal(payload);
 				}).catch(() => { /* best-effort: 累计回退到本地全量 */ });
@@ -692,7 +879,7 @@ window.__ModuleLoader__.load({
 				const cutoff = dayKeyOf(new Date(Date.now() - 13 * 86400000));
 				const today = todayKey();
 				const monthKeys = [cutoff.slice(0, 7), today.slice(0, 7)].filter((key, index, all) => all.indexOf(key) === index);
-				Promise.all(monthKeys.map((key) => {
+				return Promise.all(monthKeys.map((key) => {
 					const [year, month] = key.split("-").map(Number);
 					return fetchJson(`/api/usage-stats/platform?month=${month}&year=${year}${force ? "&refresh=1" : ""}`).catch(() => null);
 				})).then((payloads) => {
@@ -847,24 +1034,43 @@ window.__ModuleLoader__.load({
 				};
 			}, []);
 
-			// 独立版：启动时从主进程读取持久化的置顶状态并同步按钮。
+			// 点击面板外任意处即可关闭（弹出式面板常规交互）：面板或徽标
+			// 内部的 mousedown 不触发，其余任意位置（含 dsh 页面其他元素）
+			// 按下即收起，无需点右上角 ×。
 			react.useEffect(() => {
-				if (typeof window === "undefined" || typeof window.usageApp?.getAlwaysOnTop !== "function") return;
-				let alive = true;
-				window.usageApp.getAlwaysOnTop().then((value) => {
-					if (alive) setPinned(value === true);
-				}).catch(() => { /* best-effort */ });
-				return () => { alive = false; };
-			}, []);
+				if (!open || typeof document === "undefined") return;
+				const onPointerDown = (event) => {
+					const target = event?.target;
+					if (target === null || target === void 0 || typeof target.closest !== "function") return;
+					if (target.closest(`.${S.panel}, .${S.badge}`) !== null) return;
+					closePanel();
+				};
+				document.addEventListener("mousedown", onPointerDown, true);
+				return () => document.removeEventListener("mousedown", onPointerDown, true);
+			}, [open, closePanel]);
 
 			react.useEffect(() => {
 				if (!open) return;
 				loadUsage();
-				const usageTimer = window.setInterval(loadUsage, 60000);
+				const usageTimer = window.setInterval(() => loadUsage(), 60000);
 				return () => {
 					window.clearInterval(usageTimer);
 				};
 			}, [open, loadUsage]);
+
+			// Warm the panel as soon as the sidebar renders, so the FIRST open already
+			// has data and shows the heatmap instead of the loading skeleton. Requests
+			// stay silent while closed: the open-time effects above re-issue each one
+			// (clearing any error a failed prefetch left behind) and own the polling.
+			react.useEffect(() => {
+				loadUsage();
+				loadAccount("deepseek-official");
+				loadPlatform(platformMonth);
+				loadPlatformTotal();
+				loadRecentPlatform();
+				// Page-load-only warm-up: the loaders are stable callbacks, so this runs
+				// exactly once per page load and never on a month change.
+			}, []);
 
 			// Fetch the DeepSeek account. The server refreshes all providers
 			// in the background; this request normally reads its five-minute cache.
@@ -988,123 +1194,134 @@ window.__ModuleLoader__.load({
 			const selectedEntry = selectedDay !== null ? heatDayMap.get(selectedDay) ?? null : null;
 			const badgeCount = stats !== null || platformActive ? fmt(bandDayTokens) : null;
 
-			const retry = () => {
-				loadUsage();
-				loadAccount("deepseek-official", true);
-				loadPlatform(platformMonth, true);
-				loadRecentPlatform(true);
+			// 手动刷新：按钮立刻进入「刷新中」，这批请求全部落地（无论成败）后复原。
+			const refreshAll = () => {
+				if (refreshing) return;
+				setRefreshing(true);
+				Promise.allSettled([
+					loadUsage(true),
+					loadAccount("deepseek-official", true),
+					loadPlatform(platformMonth, true),
+					loadPlatformTotal(true),
+					loadRecentPlatform(true)
+				]).finally(() => {
+					if (mountedRef.current) setRefreshing(false);
+				});
 			};
 
 			const updatedLabel = refreshedAt === null ? "" : translate("panel.updatedAt", {
 				time: new Date(refreshedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
 			});
 
+			// 面板自带的 tooltip：坐标相对最外层容器（.usg_layer），这样面板关闭时
+			// 也能给徽标显示；横向按容器宽度夹取，避免贴边溢出。
+			const showTip = react.useCallback((text, element) => {
+				const layer = layerRef.current;
+				if (layer === null || element === null || element === void 0) return;
+				const box = layer.getBoundingClientRect();
+				const rect = element.getBoundingClientRect();
+				const half = 132;
+				const width = Math.max(box.width, 264);
+				const center = rect.left - box.left + rect.width / 2;
+				setTip({
+					text,
+					x: Math.min(Math.max(center, half), Math.max(half, width - half)),
+					y: rect.top - box.top - 7
+				});
+			}, []);
+			const hideTip = react.useCallback(() => setTip(null), []);
+			const hoverTip = react.useMemo(() => ({ show: showTip, hide: hideTip }), [showTip, hideTip]);
+
+			// 视图月不是当月时，"本月/今日 Tokens" 这两个标签会与数字不符（数字跟着视图月走）。
+			const viewingCurrentMonth = platformMonth === currentMonthKey();
+			const monthBandLabel = translate("usage.monthTokensFor", { month: monthLabelOf(platformMonth, translate) });
+
 			return react_jsx_runtime.jsxs("div", {
 				className: wide ? S.layer : `${S.layer} ${S.rail}`,
+				ref: layerRef,
+				"data-usg-scheme": scheme,
 				children: [
-					open && react_jsx_runtime.jsxs("section", {
+					mounted && react_jsx_runtime.jsxs("section", {
 						className: S.panel,
+						ref: panelRef,
+						tabIndex: -1,
 						"data-usage-stats-panel": true,
+						"data-usg-scheme": scheme,
+						"data-closing": closing || void 0,
 						"aria-label": translate("panel.title"),
 						children: [
 							react_jsx_runtime.jsxs("header", {
 								className: S.header,
-								"data-tauri-drag-region": true,
 								children: [
 									react_jsx_runtime.jsxs("div", {
 										className: S.headerLeft,
 										children: [
 											react_jsx_runtime.jsx(primitives.IconDataOutline16, { size: 16 }),
-											react_jsx_runtime.jsx("span", { className: S.title, children: translate("panel.title") })
+											react_jsx_runtime.jsx("span", { className: S.title, children: translate("panel.title") }),
+											(refreshing || updatedLabel !== "") && react_jsx_runtime.jsx("span", {
+												className: S.headerHint,
+												// 读屏用户按了刷新也能听到结果（刷新中… → 更新于 hh:mm）。
+												role: "status",
+												"aria-live": "polite",
+												children: refreshing ? translate("action.refreshing") : updatedLabel
+											})
 										]
 									}),
 									react_jsx_runtime.jsxs("div", {
 										className: S.headerActions,
+										// 独立版专属：置顶 / 最小化 / 最大化 / 关闭，顺序遵循 Windows 惯例（✕ 恒为最右）。
+										// 三个图标都不挂悬浮气泡（插件侧已确认 Tooltip 在固定定位面板里会飘到内容上方）。
 										children: [
-											// 独立版专属：窗口置顶（通过 preload 桥接 Electron 主进程）。
 											react_jsx_runtime.jsx("button", {
 												type: "button",
 												className: S.iconButton,
 												"aria-label": translate("action.pin"),
 												"aria-pressed": pinned,
-												title: translate("action.pin"),
-												onClick: () => {
-													const next = !pinned;
-													setPinned(next);
-													if (typeof window !== "undefined" && typeof window.usageApp?.setAlwaysOnTop === "function") {
-														window.usageApp.setAlwaysOnTop(next);
-													}
-												},
+												onClick: togglePin,
 												children: react_jsx_runtime.jsx(primitives.IconPinOutline14, { size: 14 })
 											}),
-											react_jsx_runtime.jsx(primitives.Tooltip, {
-												label: translate("action.refresh"),
-												side: "bottom",
-												delayMs: 500,
-												children: react_jsx_runtime.jsx("button", {
-													type: "button",
-													className: S.iconButton,
-													"aria-label": translate("action.refresh"),
-													onClick: retry,
-													children: react_jsx_runtime.jsx(primitives.IconRefreshOutline14, { size: 14 })
-												})
+											react_jsx_runtime.jsx("button", {
+												type: "button",
+												className: S.iconButton,
+												"aria-label": translate("action.refresh"),
+												disabled: refreshing,
+												"data-busy": refreshing || void 0,
+												onClick: refreshAll,
+												children: react_jsx_runtime.jsx(primitives.IconRefreshOutline14, { size: 14 })
 											}),
-											react_jsx_runtime.jsx(primitives.Tooltip, {
-												label: translate("settings.title"),
-												side: "bottom",
-												delayMs: 500,
-												children: react_jsx_runtime.jsx("button", {
-													type: "button",
-													className: S.iconButton,
-													"aria-label": translate("settings.title"),
-													onClick: () => {
-														setShowSettings(true);
-														loadTokenStatus();
-													},
-													children: react_jsx_runtime.jsx(primitives.IconSettingsOutline14, { size: 14 })
-												})
+											react_jsx_runtime.jsx("button", {
+												type: "button",
+												className: S.iconButton,
+												"aria-label": translate("settings.title"),
+												onClick: () => {
+													// 清掉上一次的成功文案：它留在视图里会被误读成本次结果。
+													setTokenMessage("");
+													setShowSettings(true);
+													loadTokenStatus();
+												},
+												children: react_jsx_runtime.jsx(primitives.IconSettingsOutline14, { size: 14 })
 											}),
-											// 无边框窗口的标题栏控制：最小化 / 最大化（Tauri 下渲染）——
-											// 顺序遵循 Windows 惯例：— □ ✕（✕ 恒为最右）。
-											typeof window !== "undefined" && typeof window.__TAURI__?.core?.invoke === "function" && react_jsx_runtime.jsxs(react_jsx_runtime.Fragment, {
-												children: [
-													react_jsx_runtime.jsx("button", {
-														type: "button",
-														className: S.iconButton,
-														"aria-label": "最小化",
-														onClick: () => { window.__TAURI__.core.invoke("plugin:window|minimize").catch(() => {}); },
-														children: react_jsx_runtime.jsx(primitives.IconMinimizeOutline14, { size: 14 })
-													}),
-													react_jsx_runtime.jsx("button", {
-														type: "button",
-														className: S.iconButton,
-														"aria-label": "最大化",
-														onClick: () => { window.__TAURI__.core.invoke("plugin:window|toggle_maximize").catch(() => {}); },
-														children: react_jsx_runtime.jsx(primitives.IconMaximizeOutline14, { size: 14 })
-													})
-												]
+											react_jsx_runtime.jsx("button", {
+												type: "button",
+												className: S.iconButton,
+												"aria-label": translate("action.minimize"),
+												onClick: () => { tauriInvoke("plugin:window|minimize"); },
+												children: react_jsx_runtime.jsx(primitives.IconMinimizeOutline14, { size: 14 })
 											}),
-											react_jsx_runtime.jsx(primitives.Tooltip, {
-												label: translate("action.close"),
-												side: "bottom",
-												delayMs: 500,
-												children: react_jsx_runtime.jsx("button", {
-													type: "button",
-													className: S.iconButton,
-													"aria-label": translate("action.close"),
-													// 独立版：✕ = 隐藏窗口到托盘（无边框窗口的窗口关闭键）；
-													// dsh 侧（无桥无 Tauri）保持原行为：收起面板。
-													onClick: () => {
-														if (typeof window !== "undefined" && typeof window.usageApp?.hideWindow === "function") {
-															window.usageApp.hideWindow();
-														} else if (typeof window !== "undefined" && typeof window.__TAURI__?.core?.invoke === "function") {
-															window.__TAURI__.core.invoke("plugin:window|close").catch(() => {});
-														} else {
-															setOpen(false);
-														}
-													},
-													children: react_jsx_runtime.jsx(primitives.IconCloseOutline16, { size: 14 })
-												})
+											react_jsx_runtime.jsx("button", {
+												type: "button",
+												className: S.iconButton,
+												"aria-label": translate("action.maximize"),
+												onClick: () => { tauriInvoke("plugin:window|toggle_maximize"); },
+												children: react_jsx_runtime.jsx(primitives.IconMaximizeOutline14, { size: 14 })
+											}),
+											react_jsx_runtime.jsx("button", {
+												type: "button",
+												className: S.iconButton,
+												"aria-label": translate("action.close"),
+												"data-kind": "close",
+												onClick: dismissPanel,
+												children: react_jsx_runtime.jsx(primitives.IconCloseOutline16, { size: 14 })
 											})
 										]
 									})
@@ -1112,6 +1329,12 @@ window.__ModuleLoader__.load({
 							}),
 							react_jsx_runtime.jsxs("div", {
 								className: S.body,
+								key: view,
+								ref: bodyRef,
+								tabIndex: -1,
+								"data-view": view,
+								"data-dir": viewDir || void 0,
+								onScroll: hideTip,
 								children: [
 									showSettings ? react_jsx_runtime.jsx(TokenSettingsView, {
 										status: tokenStatus,
@@ -1130,6 +1353,7 @@ window.__ModuleLoader__.load({
 									}) : (selectedEntry !== null ? react_jsx_runtime.jsx(DayDetail, {
 										day: selectedEntry,
 										dayDetail,
+										detailLoading: dayDetailLoading,
 										currency: platform?.currency ?? "CNY",
 										translate,
 										onBack: () => setSelectedDay(null)
@@ -1152,21 +1376,24 @@ window.__ModuleLoader__.load({
 														onRetry: () => loadAccount("deepseek-official", true),
 														onRetryPlatform: () => loadPlatform(platformMonth, true),
 														onConfigure: () => {
+															setTokenMessage("");
 															setShowSettings(true);
 															loadTokenStatus();
 														},
-														localDayTokens: bandDayTokens,
+														localDayTokens: viewingCurrentMonth ? bandDayTokens : null,
 														localMonthTokens: bandMonthTokens,
+														// 数字跟着视图月走，标签也要跟着：翻到 7 月时"本月"就不再成立。
+														monthBandLabel: viewingCurrentMonth ? void 0 : monthBandLabel,
 														localTotalTokens: bandTotalTokens,
 														translate
 													})
 												]
 											}),
-											stats === null && usageError === null ? react_jsx_runtime.jsx("p", { className: S.note, children: translate("usage.loading") }) : null,
+											stats === null && usageError === null ? react_jsx_runtime.jsx(UsageSkeleton, {}) : null,
 											usageError !== null ? react_jsx_runtime.jsxs("div", {
 												className: S.error,
 												children: [
-													react_jsx_runtime.jsx("span", { children: translate("usage.error", { message: usageError }) }),
+													react_jsx_runtime.jsx("span", { className: S.errorText, title: translate("usage.error", { message: usageError }), children: translate("usage.error", { message: usageError }) }),
 													react_jsx_runtime.jsx("button", {
 														type: "button",
 														className: S.retry,
@@ -1217,15 +1444,34 @@ window.__ModuleLoader__.load({
 														selectedKey: selectedDay,
 														onSelect: setSelectedDay,
 														today: todayKey(),
-														currency: platform?.currency ?? "CNY"
+														currency: platform?.currency ?? "CNY",
+														hoverTip,
+														onMonthStep: (delta) => setPlatformMonth(shiftMonth(platformMonth, delta))
 													})
 												]
 											}),
+											// A1 分层：首屏只留「账户卡 + 热力图」一屏放得下，
+											// 最近 14 天与平台明细折叠在下面，展开状态不跨次记忆。
 											recent.length > 0 && react_jsx_runtime.jsxs("section", {
 												className: S.section,
 												children: [
-													react_jsx_runtime.jsx("h3", { className: S.sectionTitle, children: translate("usage.recent") }),
-													react_jsx_runtime.jsx("div", {
+													react_jsx_runtime.jsxs("button", {
+														type: "button",
+														className: S.disclosureHead,
+														"aria-expanded": recentOpen,
+														onClick: () => setRecentOpen((value) => !value),
+														children: [
+															react_jsx_runtime.jsx("span", {
+																className: S.disclosureChevron,
+																"data-open": recentOpen || void 0,
+																"aria-hidden": true,
+																children: [react_jsx_runtime.jsx(primitives.IconChevronRightOutline14, { size: 12 })]
+															}),
+															react_jsx_runtime.jsx("h3", { className: S.sectionTitle, children: translate("usage.recent") }),
+															react_jsx_runtime.jsx("span", { className: S.disclosureCount, children: fmt(recent.length) })
+														]
+													}),
+													recentOpen && react_jsx_runtime.jsx("div", {
 														className: S.days,
 														children: recent.map((day) => {
 															const maxRecent = Math.max(...recent.map((d) => d.tokens ?? 0), 1);
@@ -1247,19 +1493,42 @@ window.__ModuleLoader__.load({
 													})
 												]
 											}),
-											react_jsx_runtime.jsx(PlatformSection, {
-												platform,
-												loading: platformLoading,
-												error: platformError,
-												month: platformMonth,
-												onMonthChange: setPlatformMonth,
-												onRetry: () => loadPlatform(platformMonth, true),
-												onConfigure: () => {
-													setShowSettings(true);
-													loadTokenStatus();
-												},
-												translate,
-												showStats: false
+											// 平台模型明细同样收进折叠：默认只露一行标题 + 模型数。
+											react_jsx_runtime.jsxs("section", {
+												className: S.section,
+												children: [
+													react_jsx_runtime.jsxs("button", {
+														type: "button",
+														className: S.disclosureHead,
+														"aria-expanded": platformOpen,
+														onClick: () => setPlatformOpen((value) => !value),
+														children: [
+															react_jsx_runtime.jsx("span", {
+																className: S.disclosureChevron,
+																"data-open": platformOpen || void 0,
+																"aria-hidden": true,
+																children: [react_jsx_runtime.jsx(primitives.IconChevronRightOutline14, { size: 12 })]
+															}),
+															react_jsx_runtime.jsx("h3", { className: S.sectionTitle, children: translate("platform.modelsTitle") }),
+															(platform?.models?.length ?? 0) > 0 && react_jsx_runtime.jsx("span", { className: S.disclosureCount, children: fmt(platform.models.length) })
+														]
+													}),
+													platformOpen && react_jsx_runtime.jsx(PlatformSection, {
+														platform,
+														loading: platformLoading,
+														error: platformError,
+														month: platformMonth,
+														onMonthChange: setPlatformMonth,
+														onRetry: () => loadPlatform(platformMonth, true),
+														onConfigure: () => {
+															setTokenMessage("");
+															setShowSettings(true);
+															loadTokenStatus();
+														},
+														translate,
+														showStats: false
+													})
+												]
 											}),
 											react_jsx_runtime.jsx(ApiKeysSection, {
 												apiKeys: platform?.apiKeys,
@@ -1280,10 +1549,16 @@ window.__ModuleLoader__.load({
 						children: react_jsx_runtime.jsxs("button", {
 							type: "button",
 							className: S.badge,
+							ref: badgeRef,
 							"data-usage-stats-badge": true,
 							"aria-label": translate("panel.badge"),
 							"aria-expanded": open,
-							onClick: () => setOpen((value) => !value),
+							// 窄侧栏（rail）只剩一个图标：用面板自绘 tooltip 补上「今日用量」。
+							onMouseEnter: wide ? void 0 : (event) => showTip(`${translate("panel.badge")} · ${translate("usage.todayTokens")} ${fmt(bandDayTokens)}`, event.currentTarget),
+							onMouseLeave: wide ? void 0 : hideTip,
+							onFocus: wide ? void 0 : (event) => showTip(`${translate("panel.badge")} · ${translate("usage.todayTokens")} ${fmt(bandDayTokens)}`, event.currentTarget),
+							onBlur: wide ? void 0 : hideTip,
+							onClick: () => (open ? closePanel() : openPanel()),
 							children: [
 								react_jsx_runtime.jsx(primitives.IconDataOutline16, { size: wide ? 14 : 18 }),
 								wide && react_jsx_runtime.jsxs(react_jsx_runtime.Fragment, {
@@ -1294,57 +1569,40 @@ window.__ModuleLoader__.load({
 								})
 							]
 						})
+					}),
+					// tooltip 挂在最外层：面板关闭时也要能给徽标显示（坐标相对 .usg_layer）。
+					tip !== null && react_jsx_runtime.jsx("div", {
+						className: S.tip,
+						role: "tooltip",
+						style: { left: tip.x, top: tip.y },
+						children: tip.text
 					})
 				]
 			});
 		}
 
-		/** True for the official DeepSeek provider route (platform usage applies to it). */
-		function isDeepSeekProviderId(providerId) {
-			return providerId === "deepseek-official" || providerId === "deepseek";
-		}
-
 		/** DeepSeek 官方品牌 logo 中的鲸鱼图形（www.deepseek.com 页面内嵌 SVG 提取）。 */
 		const DEEPSEEK_WHALE_D = "M26.5174 3.39471C26.235 3.2567 26.1137 3.52006 25.9487 3.65346C25.8923 3.69659 25.8446 3.75294 25.7969 3.80469C25.3846 4.24516 24.9027 4.53439 24.2737 4.49989C23.3536 4.44814 22.5682 4.73737 21.8735 5.44119C21.7258 4.57349 21.2353 4.0554 20.4889 3.72304C20.0985 3.55054 19.7034 3.37746 19.4297 3.00197C19.2388 2.73459 19.1865 2.43673 19.091 2.14289C19.0301 1.96579 18.9697 1.78466 18.7656 1.75418C18.5442 1.71968 18.4574 1.90541 18.3705 2.06067C18.0232 2.69549 17.8887 3.39471 17.9019 4.10313C17.9324 5.6965 18.6051 6.96556 19.9421 7.86834C20.0939 7.97184 20.133 8.07535 20.0852 8.22658C19.9938 8.53766 19.8857 8.83955 19.7903 9.15063C19.7293 9.34901 19.6384 9.39271 19.4257 9.30588C18.692 8.9994 18.0583 8.54571 17.4982 7.99772C16.5477 7.07827 15.6881 6.06336 14.6162 5.26869C14.3644 5.08296 14.1125 4.91045 13.8521 4.746C12.7584 3.68394 13.9952 2.81164 14.2816 2.70814C14.5812 2.60003 14.3857 2.22857 13.4179 2.23317C12.4502 2.2372 11.5646 2.56151 10.4359 2.99335C10.2708 3.05832 10.0972 3.10547 9.91951 3.14457C8.8954 2.95022 7.83162 2.90709 6.72069 3.03245C4.62877 3.26533 2.95777 4.25436 1.72954 5.94261C0.254043 7.97184 -0.0932678 10.2777 0.33167 12.6824C0.778458 15.2171 2.07225 17.3153 4.06008 18.9558C6.12152 20.6567 8.49577 21.4905 11.2047 21.3306C12.8498 21.2358 14.6812 21.0155 16.7473 19.2669C17.2682 19.5262 17.8151 19.6297 18.7219 19.7074C19.4205 19.7723 20.0933 19.6729 20.6143 19.5648C21.4302 19.3923 21.3739 18.6367 21.0789 18.4981C18.6874 17.3843 19.2124 17.8374 18.7351 17.4706C19.9501 16.033 21.8063 13.4776 22.379 9.99821C22.4353 9.61409 22.5072 9.073 22.4986 8.76192C22.494 8.57216 22.5377 8.49856 22.7545 8.47671C23.3536 8.40771 23.935 8.24383 24.4692 7.94999C26.0188 7.10357 26.6439 5.71318 26.7911 4.04678C26.8129 3.79204 26.7865 3.52869 26.5174 3.39471ZM13.0143 18.3946C10.6964 16.5724 9.5722 15.9726 9.10816 15.9985C8.67402 16.0244 8.75222 16.5212 8.84768 16.8449C8.94773 17.1646 9.07768 17.3849 9.25996 17.6655C9.38589 17.8512 9.47272 18.1272 9.13404 18.3348C8.38766 18.7965 7.08985 18.1796 7.0289 18.1491C5.51833 17.2595 4.25559 16.0853 3.36546 14.4793C2.50581 12.9337 2.0067 11.2753 1.92447 9.50542C1.90262 9.07818 2.02855 8.92695 2.45406 8.84932C3.01413 8.74582 3.59144 8.72397 4.15093 8.80619C6.51656 9.15178 8.53027 10.2092 10.2185 11.8848C11.1822 12.8388 11.9114 13.979 12.6623 15.0929C13.461 16.2757 14.3201 17.4027 15.4144 18.3268C15.8008 18.6505 16.109 18.8966 16.404 19.0783C15.5144 19.1778 14.0297 19.1991 13.0143 18.3958V18.3946ZM14.1252 11.2489C14.1252 11.0591 14.277 10.9079 14.4679 10.9079C14.511 10.9079 14.5501 10.9165 14.5852 10.9292C14.6329 10.9464 14.6766 10.9723 14.7111 11.0114C14.7721 11.0718 14.8066 11.158 14.8066 11.2489C14.8066 11.4386 14.6548 11.5899 14.4639 11.5899C14.273 11.5899 14.1252 11.4386 14.1252 11.2489ZM17.5759 13.0188C17.3545 13.1096 17.1331 13.1873 16.9203 13.1959C16.5903 13.2131 16.2303 13.0791 16.0348 12.9153C15.7312 12.6605 15.5139 12.5179 15.423 12.0734C15.3839 11.8837 15.4057 11.5899 15.4402 11.4214C15.5185 11.0585 15.4316 10.8257 15.1757 10.614C14.9676 10.4415 14.7025 10.3938 14.4115 10.3938C14.3029 10.3938 14.2034 10.3461 14.1292 10.3076C14.0079 10.2472 13.9078 10.096 14.0033 9.91023C14.0338 9.84985 14.1815 9.70322 14.216 9.67734C14.6111 9.45251 15.0665 9.52612 15.488 9.6946C15.8784 9.85445 16.174 10.1477 16.5989 10.5623C17.033 11.0631 17.1112 11.2011 17.3585 11.5772C17.554 11.871 17.7317 12.1729 17.8536 12.5185C17.9272 12.7341 17.8317 12.9107 17.5759 13.0188Z";
 
-		function providerMark(provider) {
-			const known = {
-				"deepseek-official": "DS",
-				deepseek: "DS",
-				"opencode-go": "GO",
-				openrouter: "OR",
-				moonshotai: "K",
-				"moonshotai-cn": "K",
-				kimi: "K",
-				"kimi-coding": "K",
-				zai: "Z",
-				"zai-coding-cn": "Z"
-			};
-			return known[provider.id] ?? String(provider.displayName ?? provider.id).replace(/[^A-Za-z0-9]/g, "").slice(0, 2).toUpperCase();
+		/** 账户角标内容：DeepSeek 官方鲸鱼图形。 */
+		function accountMarkContent() {
+			return react_jsx_runtime.jsx("svg", {
+				viewBox: "-0.4 1.4 27.4 20.4",
+				"aria-hidden": true,
+				children: react_jsx_runtime.jsx("path", {
+					d: DEEPSEEK_WHALE_D,
+					fill: "currentColor",
+					fillRule: "evenodd",
+					clipRule: "evenodd"
+				})
+			});
 		}
 
-		/** 账户角标内容：DeepSeek 用官方鲸鱼图形，其他提供商保留字母缩写。 */
-		function accountMarkContent(provider) {
-			if (provider?.id === "deepseek-official" || provider?.id === "deepseek") {
-				return react_jsx_runtime.jsx("svg", {
-					viewBox: "-0.4 1.4 27.4 20.4",
-					"aria-hidden": true,
-					children: react_jsx_runtime.jsx("path", {
-						d: DEEPSEEK_WHALE_D,
-						fill: "currentColor",
-						fillRule: "evenodd",
-						clipRule: "evenodd"
-					})
-				});
-			}
-			return providerMark(provider);
-		}
-
-		/** Balance-mode body rendered inside the shared provider account frame. */
+		/** Balance body rendered inside the DeepSeek account card. */
 		function BalanceContent({ balance, state, message, translate, onRetry, compact }) {
-			if (state === "loading" || balance === null && state === "ok") return react_jsx_runtime.jsx("p", { className: S.quotaEmpty, children: translate("balance.loading") });
-			if (state === "unsupported") return react_jsx_runtime.jsx("p", { className: S.quotaEmpty, children: translate("balance.unsupported") });
-			if (state === "no-credential") return react_jsx_runtime.jsx("p", { className: S.quotaEmpty, children: translate("balance.noCredential", { ref: message ?? "" }) });
+			if (state === "loading" || balance === null && state === "ok") return react_jsx_runtime.jsx("p", { className: S.balanceNote, children: translate("balance.loading") });
+			if (state === "unsupported") return react_jsx_runtime.jsx("p", { className: S.balanceNote, children: translate("balance.unsupported") });
+			if (state === "no-credential") return react_jsx_runtime.jsx("p", { className: S.balanceNote, children: translate("balance.noCredential", { ref: message ?? "" }) });
 			if (state === "error") return react_jsx_runtime.jsxs("div", {
 				className: S.error,
 				children: [
@@ -1362,6 +1620,9 @@ window.__ModuleLoader__.load({
 				children: [
 					react_jsx_runtime.jsxs("div", {
 						className: S.balanceMain,
+						// 余额刷新后播报一次（读屏用户按刷新才知道数字变了）。
+						role: "status",
+						"aria-live": "polite",
 						children: [
 							react_jsx_runtime.jsx("span", { className: S.balanceAmount, children: balance.unlimited ? "∞" : fmtCurrency(balance.remaining, balance.currency) }),
 							react_jsx_runtime.jsx("span", { className: S.accountPlan, children: translate("balance.remaining") })
@@ -1382,155 +1643,23 @@ window.__ModuleLoader__.load({
 			});
 		}
 
-		/** Provider selector shared by monetary and subscription account modes. */
-		function ProviderPicker({ providers, selectedProvider, onSelect, translate }) {
-			if (providers.length === 0) return null;
-			return react_jsx_runtime.jsxs("label", {
-				className: S.providerPicker,
-				children: [
-					react_jsx_runtime.jsx("span", { className: S.providerPickerLabel, children: translate("account.provider") }),
-					react_jsx_runtime.jsx("select", {
-						className: S.providerSelect,
-						value: selectedProvider ?? "",
-						"aria-label": translate("account.provider"),
-						onChange: (event) => onSelect(event.target.value),
-						children: providers.map((provider) => react_jsx_runtime.jsx("option", {
-							value: provider.id,
-							children: provider.displayName
-						}, provider.id))
-					})
-				]
-			});
-		}
-
-		function subscriptionStatusLabel(status, translate) {
-			if (status === "ok") return translate("subscription.status.ok");
-			if (status === "not-configured") return translate("subscription.status.notConfigured");
-			if (status === "unauthorized") return translate("subscription.status.unauthorized");
-			if (status === "rate-limited") return translate("subscription.status.rateLimited");
+		function accountStatusLabel(status, translate) {
+			if (status === "ok") return translate("account.status.ok");
+			if (status === "not-configured") return translate("account.status.notConfigured");
+			if (status === "unauthorized") return translate("account.status.unauthorized");
+			if (status === "rate-limited") return translate("account.status.rateLimited");
 			if (status === "invalid-response") return translate("account.status.invalidResponse");
 			if (status === "unsupported") return translate("account.status.unsupported");
-			return translate("subscription.status.unavailable");
-		}
-
-		function quotaLabel(kind, translate) {
-			if (kind === "session") return translate("subscription.window.session");
-			if (kind === "daily") return translate("subscription.window.daily");
-			if (kind === "weekly") return translate("subscription.window.weekly");
-			if (kind === "monthly") return translate("subscription.window.monthly");
-			if (kind === "quota") return translate("subscription.window.quota");
-			if (kind === "billing") return translate("subscription.window.mcp");
-			return kind;
-		}
-
-		function resetLabel(resetsAt, translate) {
-			if (typeof resetsAt !== "string") return "";
-			const date = new Date(resetsAt);
-			if (Number.isNaN(date.getTime())) return "";
-			return translate("subscription.resets", {
-				time: date.toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
-			});
-		}
-
-		/** Percentage-window body rendered inside the shared provider account frame. */
-		function SubscriptionContent({ provider, translate }) {
-			const windows = Array.isArray(provider.windows) ? provider.windows : [];
-			const status = typeof provider.status === "string" ? provider.status : "unavailable";
-			const emptyMessage = status === "not-configured"
-				? translate("subscription.notConfigured", { refs: Array.isArray(provider.missingCredentials) ? provider.missingCredentials.join(" + ") : "" })
-				: status === "unauthorized" ? translate("subscription.unauthorized")
-					: status === "rate-limited" ? translate("subscription.rateLimited")
-						: status === "invalid-response" ? translate("account.invalidResponse")
-							: status === "unsupported" ? translate("balance.unsupported")
-								: translate("subscription.unavailable");
-			return (status === "ok" || provider.stale === true) && windows.length > 0 ? react_jsx_runtime.jsx("div", {
-						className: S.quotaList,
-						children: windows.map((window) => {
-							const used = Math.max(0, Math.min(100, Number(window.usedPercent) || 0));
-							return react_jsx_runtime.jsxs("div", {
-								className: S.quotaRow,
-								children: [
-									react_jsx_runtime.jsxs("div", {
-										className: S.quotaMeta,
-										children: [
-											react_jsx_runtime.jsx("span", { className: S.quotaLabel, children: quotaLabel(window.kind, translate) }),
-											react_jsx_runtime.jsx("span", { className: S.quotaReset, children: resetLabel(window.resetsAt, translate) }),
-											react_jsx_runtime.jsx("span", { className: S.quotaValue, children: translate("subscription.used", { value: used.toFixed(used % 1 === 0 ? 0 : 1) }) })
-										]
-									}),
-									react_jsx_runtime.jsx("div", {
-										className: S.quotaTrack,
-										role: "progressbar",
-										"aria-label": quotaLabel(window.kind, translate),
-										"aria-valuemin": 0,
-										"aria-valuemax": 100,
-										"aria-valuenow": used,
-										children: react_jsx_runtime.jsx("div", { className: S.quotaFill, style: { width: `${used}%` } })
-									})
-								]
-							}, window.kind);
-						})
-					}) : react_jsx_runtime.jsx("p", { className: S.quotaEmpty, children: emptyMessage });
-		}
-
-		/**
-		 * The single account-card interface. Provider identity/colour/status live
-		 * in the shared frame; only the inner balance/quota data varies by mode.
-		 */
-		function ProviderAccountCard({ provider, account, accountLoading, accountError, translate, onRetry }) {
-			const mode = account?.mode ?? provider.accountMode ?? "balance";
-			const subscriptionMode = mode === "subscription";
-			const status = accountLoading && account === null ? "loading" : account?.status ?? "unavailable";
-			const statusText = status === "loading" ? translate("account.status.loading")
-				: status === "unsupported" ? translate("account.status.unsupported")
-					: subscriptionStatusLabel(status, translate);
-			const subtitle = account?.plan ?? (subscriptionMode ? translate("subscription.planUnknown") : translate("account.balanceMode"));
-			const balanceState = accountLoading && account === null ? "loading"
-				: accountError !== null ? "error"
-					: status === "not-configured" ? "no-credential"
-						: status === "unsupported" ? "unsupported"
-							: account?.balance !== null && account?.balance !== void 0 ? "ok" : "error";
-			const balanceMessage = accountError ?? account?.missingCredentials?.[0] ?? status;
-			return react_jsx_runtime.jsxs("article", {
-				className: S.accountCard,
-				"data-provider": provider.id,
-				"data-account-mode": mode,
-				children: [
-					react_jsx_runtime.jsxs("div", {
-						className: S.accountHead,
-						children: [
-							react_jsx_runtime.jsx("span", { className: S.accountMark, "aria-hidden": true, children: accountMarkContent(provider) }),
-							react_jsx_runtime.jsxs("span", {
-								className: S.accountIdentity,
-								children: [
-									react_jsx_runtime.jsx("span", { className: S.accountName, children: provider.displayName }),
-									react_jsx_runtime.jsx("span", { className: S.accountPlan, children: subtitle })
-								]
-							}),
-							react_jsx_runtime.jsx("span", { className: S.accountStatus, "data-status": status, children: statusText })
-						]
-					}),
-					subscriptionMode
-						? accountError !== null ? react_jsx_runtime.jsxs("div", {
-							className: S.error,
-							children: [
-								react_jsx_runtime.jsx("span", { children: translate("subscription.error", { message: accountError }) }),
-								react_jsx_runtime.jsx("button", { type: "button", className: S.retry, onClick: onRetry, children: translate("action.retry") })
-							]
-						}) : accountLoading && account === null
-							? react_jsx_runtime.jsx("p", { className: S.quotaEmpty, children: translate("subscription.loading") })
-							: react_jsx_runtime.jsx(SubscriptionContent, { provider: account ?? { status: "unavailable", windows: [] }, translate })
-						: react_jsx_runtime.jsx(BalanceContent, { balance: account?.balance ?? null, state: balanceState, message: balanceMessage, translate, onRetry })
-				]
-			});
+			return translate("account.status.unavailable");
 		}
 
 		/**
 		 * One day's per-model breakdown. `day` is the wire day entry carrying
 		 * `tokens`, `cacheHitRate`, and `models` (descending by tokens).
 		 */
-		/** Token composition segments: 命中 / 未命中 / 输出 (本地日追加缓存写入). */
-		const COMP_COLORS = { hit: "#4D6BFE", miss: "#f59e0b", response: "#9368ef", write: "#22b8b5" };
+		/** Token composition segments: 命中 / 未命中 / 输出 (本地日追加缓存写入).
+		 * 颜色走语义令牌（缓存=青绿、未命中=琥珀、输出=蓝、缓存写=紫），浅深主题各自有一档。 */
+		const COMP_COLORS = { hit: "var(--usg-cache)", miss: "var(--usg-cost)", response: "var(--usg-token)", write: "var(--usg-write)" };
 
 		/**
 		 * Stacked composition bar: segments share the track by flex-grow (pure
@@ -1573,7 +1702,7 @@ window.__ModuleLoader__.load({
 		 * carry `requestCount` and `cost`, and the `dayDetail` payload adds the
 		 * hourly distribution + per-API-Key rows for the selected day.
 		 */
-		function DayDetail({ day, translate, onBack, dayDetail = null, currency = "CNY" }) {
+		function DayDetail({ day, translate, onBack, dayDetail = null, currency = "CNY", detailLoading = false }) {
 			const models = Array.isArray(day.models) ? day.models : [];
 			const totalTokens = day.tokens ?? 0;
 			const hasRequests = (day.requestCount ?? 0) > 0;
@@ -1668,7 +1797,8 @@ window.__ModuleLoader__.load({
 							}),
 							react_jsx_runtime.jsxs("div", {
 								className: S.dayRing,
-								"aria-label": `${translate("usage.cacheRead")}-${translate("platform.miss")}-${translate("platform.output")}`,
+								role: "img",
+								"aria-label": translate("usage.ringLabel", { total: heroValue }),
 								children: [
 									react_jsx_runtime.jsxs("svg", {
 										className: S.dayRingSvg,
@@ -1700,11 +1830,26 @@ window.__ModuleLoader__.load({
 						]
 					}),
 					react_jsx_runtime.jsx("div", { className: S.dayDivider }),
+					// B3: 平台明细还在路上时先给骨架，避免小时图/host 明细"迟到跳入"。
+					detailLoading && hours === null ? react_jsx_runtime.jsx("div", {
+						className: S.hourBlock,
+						"aria-hidden": true,
+						children: react_jsx_runtime.jsx("div", {
+							className: S.skelList,
+							children: [0, 1].map((index) => react_jsx_runtime.jsx("div", { className: `${S.skelBlock} ${S.skelRow}` }, `day-skel-${index}`))
+						})
+					}) : null,
 					hours !== null && hours.length > 0 && react_jsx_runtime.jsxs("div", {
 						className: S.hourBlock,
 						children: [
 							react_jsx_runtime.jsxs("div", {
 								className: S.hourChart,
+								// 24 根柱子是纯视觉：给读屏一句摘要，柱体本身由 role=img 隐去。
+								role: "img",
+								"aria-label": translate("usage.hourSummary", {
+									peak: peakHour === null ? "—" : `${String(peakHour).padStart(2, "0")}:00`,
+									total: fmt(maxHourTokens)
+								}),
 								children: hours.map((h) => {
 									const percent = h.tokens > 0 && maxHourTokens > 0 ? Math.max(6, Math.round(100 * h.tokens / maxHourTokens)) : 2;
 									const isPeak = peakHour !== null && h.hour === peakHour;
@@ -1802,9 +1947,65 @@ window.__ModuleLoader__.load({
 		 * weeks as rows (Mon-first), padded with placeholders. Cells are buttons
 		 * that select a day.
 		 */
-		function MonthHeatmap({ heat, translate, selectedKey, onSelect, today, currency = "CNY" }) {
+		function MonthHeatmap({ heat, translate, selectedKey, onSelect, today, currency = "CNY", hoverTip, onMonthStep }) {
 			const select = typeof onSelect === "function" ? onSelect : () => {};
+			// Optional in-panel tooltip (`{ show(text, element), hide() }`): the built-in
+			// `title` attribute waits about a second and is styled by the OS, so the panel
+			// draws its own. Standalone renders (tests) simply omit it.
+			const tip = hoverTip === void 0 || hoverTip === null ? null : hoverTip;
 			const currentToday = today ?? todayKey();
+			// B1: 整块日历只占一个 Tab 停靠点（roving tabindex），进入后用方向键在日期
+			// 之间走、Home/End 跳周一/周日、PageUp/PageDown 换月。鼠标操作完全不变。
+			const gridRef = react.useRef(null);
+			// 每个日期在日历里的真实行列：月份不是从周一开始时，用线性下标取模会算错列。
+			const positions = react.useMemo(() => {
+				const map = new Map();
+				heat.weeks.forEach((week, weekIndex) => {
+					week.forEach((cell, dayIndex) => {
+						if (cell !== null) map.set(cell.key, { weekIndex, dayIndex });
+					});
+				});
+				return map;
+			}, [heat]);
+			const dayKeys = react.useMemo(() => [...positions.keys()], [positions]);
+			const fallbackKey = dayKeys.includes(currentToday)
+				? currentToday
+				: (selectedKey !== null && dayKeys.includes(selectedKey) ? selectedKey : (dayKeys[0] ?? null));
+			const [focusKey, setFocusKey] = react.useState(fallbackKey);
+			react.useEffect(() => {
+				if (focusKey !== null && dayKeys.includes(focusKey)) return;
+				setFocusKey(fallbackKey);
+			}, [dayKeys, focusKey, fallbackKey]);
+			const focusCell = (key) => {
+				setFocusKey(key);
+				const node = gridRef.current === null ? null : gridRef.current.querySelector(`[data-key="${key}"]`);
+				if (node !== null && node !== void 0) node.focus();
+			};
+			const stepFocus = (key, delta) => {
+				const index = dayKeys.indexOf(key);
+				if (index < 0) return;
+				const next = dayKeys[Math.min(Math.max(index + delta, 0), dayKeys.length - 1)];
+				if (next !== void 0) focusCell(next);
+			};
+			const onCellKeyDown = (event, key) => {
+				const step = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -7, ArrowDown: 7 }[event.key];
+				if (step !== void 0) {
+					event.preventDefault();
+					stepFocus(key, step);
+					return;
+				}
+				if (event.key === "Home" || event.key === "End") {
+					event.preventDefault();
+					const position = positions.get(key);
+					if (position === void 0) return;
+					stepFocus(key, event.key === "Home" ? -position.dayIndex : 6 - position.dayIndex);
+					return;
+				}
+				if ((event.key === "PageUp" || event.key === "PageDown") && typeof onMonthStep === "function") {
+					event.preventDefault();
+					onMonthStep(event.key === "PageUp" ? -1 : 1);
+				}
+			};
 			const weekdayLabels = [
 				translate("weekday.mon"),
 				translate("weekday.tue"),
@@ -1819,6 +2020,7 @@ window.__ModuleLoader__.load({
 				children: [
 					react_jsx_runtime.jsxs("div", {
 						className: S.monthGrid,
+						ref: gridRef,
 						children: [
 							react_jsx_runtime.jsx("div", {
 								className: S.weekHeader,
@@ -1832,13 +2034,23 @@ window.__ModuleLoader__.load({
 									const hit = cell.hitRate === null || cell.hitRate === void 0 ? "" : ` · ${translate("usage.hitRate")} ${cell.hitRate}%`;
 									const cost = (cell.cost ?? 0) > 0 ? ` · ${fmtCurrency(cell.cost, currency)}` : "";
 									const isToday = cell.key === currentToday;
+									const tipText = `${cell.key} · ${fmt(cell.tokens)} tokens${hit}${cost}`;
 									return react_jsx_runtime.jsx("button", {
 										type: "button",
 										className: `${S.cell}${isToday ? ` ${S.cellToday}` : ""}${selectedKey === cell.key ? ` ${S.cellSelected}` : ""}`,
 										style: { background: style.background, color: style.color },
-										title: `${cell.key} · ${fmt(cell.tokens)} tokens${hit}${cost}`,
 										"aria-label": `${cell.key} · ${fmt(cell.tokens)} tokens${cost}`,
-										onClick: () => select(cell.key),
+										"data-key": cell.key,
+										tabIndex: cell.key === focusKey ? 0 : -1,
+										onClick: () => {
+											setFocusKey(cell.key);
+											select(cell.key);
+										},
+										onKeyDown: (event) => onCellKeyDown(event, cell.key),
+										onMouseEnter: tip === null ? void 0 : (event) => tip.show(tipText, event.currentTarget),
+										onMouseLeave: tip === null ? void 0 : tip.hide,
+										onFocus: tip === null ? void 0 : (event) => tip.show(tipText, event.currentTarget),
+										onBlur: tip === null ? void 0 : tip.hide,
 										children: react_jsx_runtime.jsx("span", { className: S.cellDay, children: cell.day })
 									}, cell.key);
 								})
@@ -2027,9 +2239,9 @@ window.__ModuleLoader__.load({
 					showStats && react_jsx_runtime.jsxs("div", {
 						className: S.statsRow,
 						children: [
-							react_jsx_runtime.jsxs("div", { className: S.stat, children: [react_jsx_runtime.jsx("span", { className: S.statValue, children: fmtCurrency(platform?.monthCost, "CNY") }), react_jsx_runtime.jsx("span", { className: S.statLabel, children: translate("platform.monthCost") })] }),
-							react_jsx_runtime.jsxs("div", { className: S.stat, children: [react_jsx_runtime.jsx("span", { className: S.statValue, children: fmtCurrency(today?.totalCost ?? 0, "CNY") }), react_jsx_runtime.jsx("span", { className: S.statLabel, children: translate("platform.todayCost") })] }),
-							react_jsx_runtime.jsxs("div", { className: S.stat, children: [react_jsx_runtime.jsx("span", { className: S.statValue, children: fmt(totals.requests) }), react_jsx_runtime.jsx("span", { className: S.statLabel, children: translate("platform.requests") })] })
+							react_jsx_runtime.jsxs("div", { className: S.stat, "data-kind": "cost", children: [react_jsx_runtime.jsx("span", { className: S.statValue, children: fmtCurrency(platform?.monthCost, "CNY") }), react_jsx_runtime.jsx("span", { className: S.statLabel, children: translate("platform.monthCost") })] }),
+							react_jsx_runtime.jsxs("div", { className: S.stat, "data-kind": "cost", children: [react_jsx_runtime.jsx("span", { className: S.statValue, children: fmtCurrency(today?.totalCost ?? 0, "CNY") }), react_jsx_runtime.jsx("span", { className: S.statLabel, children: translate("platform.todayCost") })] }),
+							react_jsx_runtime.jsxs("div", { className: S.stat, "data-kind": "request", children: [react_jsx_runtime.jsx("span", { className: S.statValue, children: fmt(totals.requests) }), react_jsx_runtime.jsx("span", { className: S.statLabel, children: translate("platform.requests") })] })
 						]
 					}),
 					models.length === 0 && days.length === 0 ? react_jsx_runtime.jsx("p", { className: S.platformHint, children: translate("platform.noData") })
@@ -2068,11 +2280,15 @@ window.__ModuleLoader__.load({
 							react_jsx_runtime.jsx("span", { className: S.monthTitle, children: monthLabelOf(month, translate) })
 						]
 					}),
-					loading && platform === null ? react_jsx_runtime.jsx("p", { className: S.note, children: translate("platform.loading") })
+					loading && platform === null ? react_jsx_runtime.jsx("div", {
+						className: S.skelList,
+						"aria-hidden": true,
+						children: [0, 1, 2].map((index) => react_jsx_runtime.jsx("div", { className: `${S.skelBlock} ${S.skelRow}` }, `platform-skel-${index}`))
+					})
 						: error !== null ? react_jsx_runtime.jsxs("div", {
 							className: S.error,
 							children: [
-								react_jsx_runtime.jsx("span", { children: translate("platform.error", { message: error }) }),
+								react_jsx_runtime.jsx("span", { className: S.errorText, title: translate("platform.error", { message: error }), children: translate("platform.error", { message: error }) }),
 								react_jsx_runtime.jsx("button", { type: "button", className: S.retry, onClick: onRetry, children: translate("action.retry") })
 							]
 						})
@@ -2105,19 +2321,20 @@ window.__ModuleLoader__.load({
 		 * usage live in ONE card, separated by a hairline divider — one module,
 		 * one selectable provider, no duplicated module title.
 		 */
-		function DeepSeekAccountUsageCard({ provider, account, accountLoading, accountError, platform, platformLoading, platformError, month, onMonthChange, onRetry, onRetryPlatform, onConfigure, translate, localDayTokens = 0, localMonthTokens = 0, localTotalTokens = 0 }) {
+		function DeepSeekAccountUsageCard({ provider, account, accountLoading, accountError, platform, platformLoading, platformError, month, onMonthChange, onRetry, onRetryPlatform, onConfigure, translate, localDayTokens = 0, localMonthTokens = 0, localTotalTokens = 0, monthBandLabel }) {
 			const mode = account?.mode ?? provider.accountMode ?? "balance";
 			const status = accountLoading && account === null ? "loading" : account?.status ?? "unavailable";
 			const statusText = status === "loading" ? translate("account.status.loading")
 				: status === "unsupported" ? translate("account.status.unsupported")
-					: subscriptionStatusLabel(status, translate);
+					: accountStatusLabel(status, translate);
 			const subtitle = account?.plan ?? translate("account.balanceMode");
 			const balanceState = accountLoading && account === null ? "loading"
 				: accountError !== null ? "error"
 					: status === "not-configured" ? "no-credential"
 						: status === "unsupported" ? "unsupported"
 							: account?.balance !== null && account?.balance !== void 0 ? "ok" : "error";
-			const balanceMessage = accountError ?? account?.missingCredentials?.[0] ?? status;
+			const balanceMessage = accountError ?? account?.missingCredentials?.[0]
+				?? (account?.policyReason === "private-network" && account?.resolvedAddress ? translate("balance.blockedAddress", { address: account.resolvedAddress }) : status);
 			const today = (Array.isArray(platform?.days) ? platform.days : []).find((day) => day.date === todayKey()) ?? null;
 			const requests = (Array.isArray(platform?.models) ? platform.models : []).reduce((sum, model) => sum + (model.requestCount ?? 0), 0);
 			return react_jsx_runtime.jsxs("article", {
@@ -2128,7 +2345,7 @@ window.__ModuleLoader__.load({
 					react_jsx_runtime.jsxs("div", {
 						className: S.accountHead,
 						children: [
-							react_jsx_runtime.jsx("span", { className: S.accountMark, "aria-hidden": true, children: accountMarkContent(provider) }),
+							react_jsx_runtime.jsx("span", { className: S.accountMark, "aria-hidden": true, children: accountMarkContent() }),
 							react_jsx_runtime.jsxs("span", {
 								className: S.accountIdentity,
 								children: [
@@ -2147,17 +2364,17 @@ window.__ModuleLoader__.load({
 							react_jsx_runtime.jsxs("div", {
 								className: `${S.statsRow} ${S.bandCompact}`,
 								children: [
-									react_jsx_runtime.jsxs("div", { className: S.stat, children: [react_jsx_runtime.jsx("span", { className: S.statValue, children: fmt(localTotalTokens) }), react_jsx_runtime.jsx("span", { className: S.statLabel, children: translate("usage.totalTokens") })] }),
-									react_jsx_runtime.jsxs("div", { className: S.stat, children: [react_jsx_runtime.jsx("span", { className: S.statValue, children: fmt(requests) }), react_jsx_runtime.jsx("span", { className: S.statLabel, children: translate("platform.monthRequests") })] }),
-									react_jsx_runtime.jsxs("div", { className: S.stat, children: [react_jsx_runtime.jsx("span", { className: S.statValue, children: fmtCurrency(platform?.monthCost, platform?.currency ?? "CNY") }), react_jsx_runtime.jsx("span", { className: S.statLabel, children: translate("platform.monthCost") })] })
+									react_jsx_runtime.jsxs("div", { className: S.stat, "data-kind": "token", children: [react_jsx_runtime.jsx("span", { className: S.statValue, children: fmt(localTotalTokens) }), react_jsx_runtime.jsx("span", { className: S.statLabel, children: translate("usage.totalTokens") })] }),
+									react_jsx_runtime.jsxs("div", { className: S.stat, "data-kind": "request", children: [react_jsx_runtime.jsx("span", { className: S.statValue, children: fmt(requests) }), react_jsx_runtime.jsx("span", { className: S.statLabel, children: translate("platform.monthRequests") })] }),
+									react_jsx_runtime.jsxs("div", { className: S.stat, "data-kind": "cost", children: [react_jsx_runtime.jsx("span", { className: S.statValue, children: fmtCurrency(platform?.monthCost, platform?.currency ?? "CNY") }), react_jsx_runtime.jsx("span", { className: S.statLabel, children: translate("platform.monthCost") })] })
 								]
 							}),
 							react_jsx_runtime.jsxs("div", {
 								className: `${S.statsRow} ${S.bandCompact}`,
 								children: [
-									react_jsx_runtime.jsxs("div", { className: S.stat, children: [react_jsx_runtime.jsx("span", { className: S.statValue, children: fmt(localMonthTokens) }), react_jsx_runtime.jsx("span", { className: S.statLabel, children: translate("usage.monthTokens") })] }),
-									react_jsx_runtime.jsxs("div", { className: S.stat, children: [react_jsx_runtime.jsx("span", { className: S.statValue, children: fmtCurrency(today?.totalCost ?? 0, platform?.currency ?? "CNY") }), react_jsx_runtime.jsx("span", { className: S.statLabel, children: translate("platform.todayCost") })] }),
-									react_jsx_runtime.jsxs("div", { className: S.stat, children: [react_jsx_runtime.jsx("span", { className: S.statValue, children: fmt(localDayTokens) }), react_jsx_runtime.jsx("span", { className: S.statLabel, children: translate("usage.todayTokens") })] })
+									react_jsx_runtime.jsxs("div", { className: S.stat, "data-kind": "token", children: [react_jsx_runtime.jsx("span", { className: S.statValue, children: fmt(localMonthTokens) }), react_jsx_runtime.jsx("span", { className: S.statLabel, children: monthBandLabel ?? translate("usage.monthTokens") })] }),
+									react_jsx_runtime.jsxs("div", { className: S.stat, "data-kind": "cost", children: [react_jsx_runtime.jsx("span", { className: S.statValue, children: fmtCurrency(today?.totalCost ?? 0, platform?.currency ?? "CNY") }), react_jsx_runtime.jsx("span", { className: S.statLabel, children: translate("platform.todayCost") })] }),
+									react_jsx_runtime.jsxs("div", { className: S.stat, "data-kind": "token", children: [react_jsx_runtime.jsx("span", { className: S.statValue, children: localDayTokens === null ? "—" : fmt(localDayTokens) }), react_jsx_runtime.jsx("span", { className: S.statLabel, children: translate("usage.todayTokens") })] })
 								]
 							})
 						]
@@ -2280,6 +2497,7 @@ window.__ModuleLoader__.load({
 								className: S.settingsInput,
 								type: "password",
 								value: value,
+								"data-dirty": value.trim() === "" ? void 0 : true,
 								"aria-label": translate("token.title"),
 								placeholder: configured ? translate("token.configuredPlaceholder") : translate("token.placeholder"),
 								onChange: (event) => onChange(event.target.value)
@@ -2312,7 +2530,8 @@ window.__ModuleLoader__.load({
 									})
 								]
 							}),
-							react_jsx_runtime.jsx("p", { className: S.note, children: message !== "" ? message : (configured ? translate("token.configured", { source: status?.source === "credential" ? translate("token.sourceCredential") : translate("token.sourceStored") }) : translate("token.notConfigured")) })
+							// 未保存时优先说"还没保存"，避免上次的成功文案被误读成本次结果。
+							react_jsx_runtime.jsx("p", { className: S.note, children: value.trim() !== "" ? translate("token.unsaved") : (message !== "" ? message : (configured ? translate("token.configured", { source: status?.source === "credential" ? translate("token.sourceCredential") : translate("token.sourceStored") }) : translate("token.notConfigured"))) })
 						]
 					})
 				]
@@ -2327,78 +2546,46 @@ window.__ModuleLoader__.load({
 			"panel.title": "用量与余额",
 			"panel.badge": "用量/余额",
 			"account.title": "账户与用量",
-			"account.provider": "当前供应商",
 			"account.balanceMode": "API 余额",
-			"account.loading": "正在加载供应商…",
 			"account.status.loading": "查询中",
+			"account.status.ok": "实时",
+			"account.status.notConfigured": "未配置",
+			"account.status.unauthorized": "需重新登录",
+			"account.status.rateLimited": "请求受限",
+			"account.status.unavailable": "暂不可用",
 			"account.status.unsupported": "不支持余额",
 			"account.status.invalidResponse": "响应异常",
-			"account.invalidResponse": "供应商返回了无法识别的额度数据。",
-			"balance.title": "账户余额",
-			"balance.provider": "供应商",
-			"balance.noSchemeTag": "无余额接口",
-			"balance.unsupported": "该供应商没有公开的余额查询接口。",
+			"balance.unsupported": "无法查询余额：目标地址不符合安全策略（HTTPS + 公网）。",
+			"balance.blockedAddress": "目标域名解析到内网地址 {address}（本地代理 / VPN 的 DNS 所致，可点重试）",
 			"balance.total": "总余额",
 			"balance.remaining": "可用余额",
 			"balance.used": "已使用",
 			"balance.toppedUp": "充值余额",
 			"balance.granted": "赠送余额",
-			"balance.available": "可用",
-			"balance.unavailable": "不可用",
 			"balance.loading": "正在查询余额…",
 			"balance.noCredential": "未配置 {ref}（请编辑 ~/.dsh/.credentials.yaml）",
 			"balance.error": "余额获取失败：{message}",
-			"subscription.title": "订阅额度",
-			"subscription.loading": "正在查询订阅额度…",
-			"subscription.error": "订阅额度获取失败：{message}",
-			"subscription.status.ok": "实时",
-			"subscription.status.notConfigured": "未配置",
-			"subscription.status.unauthorized": "需重新登录",
-			"subscription.status.rateLimited": "请求受限",
-			"subscription.status.unavailable": "暂不可用",
-			"subscription.window.session": "5 小时窗口",
-			"subscription.window.daily": "每日窗口",
-			"subscription.window.weekly": "每周窗口",
-			"subscription.window.monthly": "每月窗口",
-			"subscription.window.quota": "总额度",
-			"subscription.window.mcp": "MCP 月度额度",
-			"subscription.used": "已用 {value}%",
-			"subscription.resets": "{time} 重置",
-			"subscription.notConfigured": "配置 {refs} 后显示真实订阅比例。",
-			"subscription.unauthorized": "凭据已失效，请更新后重试。",
-			"subscription.rateLimited": "供应商暂时限制查询，请稍后重试。",
-			"subscription.unavailable": "供应商没有返回可识别的额度窗口。",
-			"subscription.planUnknown": "订阅计划",
-			"usage.title": "Token 用量",
-			"usage.today": "今日",
-			"usage.month": "本月",
-			"usage.total": "累计",
 			"usage.todayTokens": "今日 Tokens",
 			"usage.monthTokens": "本月 Tokens",
+			"usage.monthTokensFor": "{month} Tokens",
 			"usage.totalTokens": "累计 Tokens",
-			"usage.loading": "正在统计用量…",
 			"usage.error": "用量统计失败：{message}",
 			"usage.heatmap": "当月每日用量",
-			"usage.heatmapSourcePlatform": "数据源：平台用量",
-			"usage.heatmapSourceLocal": "数据源：本地用量",
 			"platform.apiKeysTitle": "按 API Key",
 			"usage.recent": "最近 14 天",
 			"usage.legendLess": "少",
 			"usage.legendMore": "多",
 			"usage.back": "返回",
+			"usage.hourSummary": "当日 24 小时用量分布：最忙的 {peak} 约 {total} tokens",
+			"usage.ringLabel": "总消耗 {total} 的 Token 构成（缓存读 / 未命中 / 输出）",
 			"usage.hitRate": "缓存命中",
-			"usage.bandSource": "Tokens 数据源：平台用量（按 GMT+8 日）",
 			"usage.dayTotal": "总消耗",
-			"usage.hit.today": "今日缓存命中率",
-			"usage.input": "输入",
-			"usage.output": "输出",
-			"usage.cacheRead": "缓存读",
 			"usage.cacheWrite": "缓存写入",
 			"usage.cost": "费用",
 			"usage.unknownModel": "未知模型",
 			"usage.noModels": "这一天没有分模型数据。",
 			"platform.title": "DeepSeek 平台用量",
-			"platform.loading": "正在查询平台用量…",
+			"platform.modelsTitle": "平台模型明细",
 			"platform.error": "平台用量获取失败：{message}",
 			"platform.noCredential": "未配置 {ref}。登录 platform.deepseek.com 后打开控制台执行 JSON.parse(localStorage.userToken).value，将结果写入 ~/.dsh/.credentials.yaml。",
 			"platform.noData": "本月暂无用量数据。",
@@ -2410,7 +2597,6 @@ window.__ModuleLoader__.load({
 			"platform.hit": "缓存命中",
 			"platform.miss": "缓存未命中",
 			"platform.output": "输出",
-			"platform.ratio": "T/¥",
 			"platform.configure": "配置用量 Token",
 			"settings.title": "设置",
 			"settings.back": "返回",
@@ -2435,7 +2621,6 @@ window.__ModuleLoader__.load({
 			"token.save": "保存",
 			"token.clear": "清除",
 			"token.saving": "正在保存…",
-			"token.savedRefreshing": "已保存，正在刷新用量…",
 			"token.savedCost": "已保存并同步，本月消费 {cost}",
 			"token.saveFailed": "保存失败：{message}",
 			"token.cleared": "已清除用量 Token。",
@@ -2445,13 +2630,17 @@ window.__ModuleLoader__.load({
 			"token.pasteUnavailable": "当前浏览器无法读取剪贴板，请手动粘贴。",
 			"token.configured": "已配置（来源：{source}）",
 			"token.notConfigured": "未配置。",
+			"token.unsaved": "输入还没保存 —— 点「保存」后生效。",
 			"token.sourceCredential": "credentials 文件",
 			"token.sourceStored": "面板设置",
 			"month.year": "{year}年{month}",
-			"action.pin": "置顶",
 			"action.refresh": "刷新",
+			"action.refreshing": "刷新中…",
 			"action.retry": "重试",
 			"action.close": "关闭",
+			"action.pin": "窗口置顶",
+			"action.minimize": "最小化",
+			"action.maximize": "最大化 / 还原",
 			"action.prevMonth": "上个月",
 			"action.nextMonth": "下个月",
 			"action.today": "回到今天",
@@ -2469,78 +2658,46 @@ window.__ModuleLoader__.load({
 			"panel.title": "Usage & Balance",
 			"panel.badge": "Usage/Balance",
 			"account.title": "Account & usage",
-			"account.provider": "Current provider",
 			"account.balanceMode": "API balance",
-			"account.loading": "Loading providers…",
 			"account.status.loading": "Loading",
+			"account.status.ok": "Live",
+			"account.status.notConfigured": "Not configured",
+			"account.status.unauthorized": "Sign in again",
+			"account.status.rateLimited": "Rate limited",
+			"account.status.unavailable": "Unavailable",
 			"account.status.unsupported": "Balance unsupported",
 			"account.status.invalidResponse": "Invalid response",
-			"account.invalidResponse": "The provider returned unrecognized quota data.",
-			"balance.title": "Account balance",
-			"balance.provider": "Provider",
-			"balance.noSchemeTag": "no balance API",
-			"balance.unsupported": "This provider has no public balance interface.",
+			"balance.unsupported": "The balance target failed the security policy (HTTPS + public network).",
+			"balance.blockedAddress": "The balance hostname resolved to a private address {address} (local proxy / VPN DNS — retry after switching)",
 			"balance.total": "Total balance",
 			"balance.remaining": "Available balance",
 			"balance.used": "Used",
 			"balance.toppedUp": "Topped up",
 			"balance.granted": "Granted",
-			"balance.available": "available",
-			"balance.unavailable": "unavailable",
 			"balance.loading": "Fetching balance…",
 			"balance.noCredential": "{ref} is not configured (edit ~/.dsh/.credentials.yaml)",
 			"balance.error": "Balance fetch failed: {message}",
-			"subscription.title": "Subscription usage",
-			"subscription.loading": "Fetching subscription usage…",
-			"subscription.error": "Subscription usage failed: {message}",
-			"subscription.status.ok": "Live",
-			"subscription.status.notConfigured": "Not configured",
-			"subscription.status.unauthorized": "Sign in again",
-			"subscription.status.rateLimited": "Rate limited",
-			"subscription.status.unavailable": "Unavailable",
-			"subscription.window.session": "5-hour window",
-			"subscription.window.daily": "Daily window",
-			"subscription.window.weekly": "Weekly window",
-			"subscription.window.monthly": "Monthly window",
-			"subscription.window.quota": "Total quota",
-			"subscription.window.mcp": "Monthly MCP quota",
-			"subscription.used": "{value}% used",
-			"subscription.resets": "Resets {time}",
-			"subscription.notConfigured": "Configure {refs} to show live subscription usage.",
-			"subscription.unauthorized": "The credential has expired; update it and retry.",
-			"subscription.rateLimited": "The provider is rate limiting checks; retry later.",
-			"subscription.unavailable": "The provider returned no recognizable quota windows.",
-			"subscription.planUnknown": "Subscription plan",
-			"usage.title": "Token usage",
-			"usage.today": "Today",
-			"usage.month": "This month",
-			"usage.total": "All time",
 			"usage.todayTokens": "Today tokens",
 			"usage.monthTokens": "Month tokens",
+			"usage.monthTokensFor": "{month} tokens",
 			"usage.totalTokens": "All tokens",
-			"usage.loading": "Aggregating usage…",
 			"usage.error": "Usage aggregation failed: {message}",
 			"usage.heatmap": "Daily usage this month",
-			"usage.heatmapSourcePlatform": "Source: platform usage",
-			"usage.heatmapSourceLocal": "Source: local usage",
 			"platform.apiKeysTitle": "By API key",
 			"usage.recent": "Last 14 days",
 			"usage.legendLess": "Less",
 			"usage.legendMore": "More",
 			"usage.back": "Back",
+			"usage.hourSummary": "Hourly usage for the day: busiest hour {peak}, about {total} tokens",
+			"usage.ringLabel": "Token composition of {total} total (cache read / miss / output)",
 			"usage.hitRate": "Cache hit",
-			"usage.bandSource": "Tokens source: platform usage (GMT+8 days)",
 			"usage.dayTotal": "Total consumed",
-			"usage.hit.today": "Today's cache hit rate",
-			"usage.input": "Input",
-			"usage.output": "Output",
-			"usage.cacheRead": "Cache read",
 			"usage.cacheWrite": "Cache write",
 			"usage.cost": "Cost",
 			"usage.unknownModel": "Unknown model",
 			"usage.noModels": "No per-model data for this day.",
 			"platform.title": "DeepSeek platform usage",
-			"platform.loading": "Fetching platform usage…",
+			"platform.modelsTitle": "Platform models",
 			"platform.error": "Platform usage failed: {message}",
 			"platform.noCredential": "{ref} is not configured. Sign in to platform.deepseek.com, run JSON.parse(localStorage.userToken).value in the console, and write the result to ~/.dsh/.credentials.yaml.",
 			"platform.noData": "No usage data for this month.",
@@ -2552,7 +2709,6 @@ window.__ModuleLoader__.load({
 			"platform.hit": "Cache hit",
 			"platform.miss": "Cache miss",
 			"platform.output": "Output",
-			"platform.ratio": "T/¥",
 			"platform.configure": "Configure usage token",
 			"settings.title": "Settings",
 			"settings.back": "Back",
@@ -2577,7 +2733,6 @@ window.__ModuleLoader__.load({
 			"token.save": "Save",
 			"token.clear": "Clear",
 			"token.saving": "Saving…",
-			"token.savedRefreshing": "Saved, refreshing usage…",
 			"token.savedCost": "Saved and synced — {cost} this month",
 			"token.saveFailed": "Save failed: {message}",
 			"token.cleared": "Usage token cleared.",
@@ -2587,13 +2742,17 @@ window.__ModuleLoader__.load({
 			"token.pasteUnavailable": "This browser cannot read the clipboard; paste manually.",
 			"token.configured": "Configured (source: {source})",
 			"token.notConfigured": "Not configured.",
+			"token.unsaved": "Unsaved input — click Save to apply.",
 			"token.sourceCredential": "credentials file",
 			"token.sourceStored": "panel settings",
 			"month.year": "{month} {year}",
-			"action.pin": "Keep on top",
 			"action.refresh": "Refresh",
+			"action.refreshing": "Refreshing…",
 			"action.retry": "Retry",
 			"action.close": "Close",
+			"action.pin": "Always on top",
+			"action.minimize": "Minimize",
+			"action.maximize": "Maximize / restore",
 			"action.prevMonth": "Previous month",
 			"action.nextMonth": "Next month",
 			"action.today": "Today",
@@ -2614,17 +2773,43 @@ window.__ModuleLoader__.load({
 		const inject = ["slots", "locale"];
 
 		/**
+		 * Theme bridge for the panel. `theme` is an OPTIONAL client service, so it is
+		 * read through `ctx.get` and never injected: when the service is missing — or
+		 * when the context has no service registry at all, as in the smoke test — the
+		 * panel silently falls back to the OS `prefers-color-scheme` media query.
+		 * @param ctx - client root context.
+		 * @returns `{ scheme(), subscribe(listener) }` — the current color scheme and
+		 * a subscription to `theme/change`.
+		 */
+		function createThemeBridge(ctx) {
+			const read = () => {
+				if (typeof ctx.get !== "function") return null;
+				const theme = ctx.get("theme");
+				const scheme = theme?.getTheme?.().active?.colorScheme;
+				return scheme === "light" || scheme === "dark" ? scheme : null;
+			};
+			return {
+				scheme: read,
+				subscribe: (listener) => (typeof ctx.on === "function" ? ctx.on("theme/change", listener) : () => {})
+			};
+		}
+
+		/**
 		 * Client plugin body: register the dictionaries and the sidebar footer action.
 		 * @param ctx - client root context.
 		 */
 		function apply(ctx) {
 			ctx.effect(() => ctx.locale.register(NS, { zh, en }), "usage-stats: dictionaries");
+			// Hand the theme bridge to the panel as a prop so the heatmap scale follows
+			// the DSH theme preference (which can differ from the OS color scheme).
+			const themeBridge = createThemeBridge(ctx);
+			const Panel = (props) => react_jsx_runtime.jsx(UsageStatsPanel, { ...props, theme: themeBridge });
 			ctx.slots.inject("sidebar.footer.action", () => ctx.slots.register({
 				name: "sidebar.footer.action",
 				id: "usage-stats",
 				locale: NS,
 				order: 10
-			}, UsageStatsPanel));
+			}, Panel));
 		}
 		//#endregion
 
@@ -2632,12 +2817,10 @@ window.__ModuleLoader__.load({
 		exports.inject = inject;
 		exports.UsageStatsPanel = UsageStatsPanel;
 		exports.DayDetail = DayDetail;
-		exports.ProviderAccountCard = ProviderAccountCard;
 		exports.MonthHeatmap = MonthHeatmap;
 		exports.PlatformSection = PlatformSection;
 		exports.DeepSeekAccountUsageCard = DeepSeekAccountUsageCard;
 		exports.ApiKeysSection = ApiKeysSection;
-		exports.isDeepSeekProviderId = isDeepSeekProviderId;
 		exports.TokenSettingsView = TokenSettingsView;
 		exports.platformDayBreakdown = platformDayBreakdown;
 		exports.platformDayHitRate = platformDayHitRate;
@@ -2646,7 +2829,10 @@ window.__ModuleLoader__.load({
 		exports.cellColor = cellColor;
 		exports.recentDaysOf = recentDaysOf;
 		exports.createLoader = createLoader;
-		exports.buildProviderChoices = buildProviderChoices;
+		exports.resolveColorScheme = resolveColorScheme;
+		exports.createThemeBridge = createThemeBridge;
+		exports.prefersReducedMotion = prefersReducedMotion;
+		exports.UsageSkeleton = UsageSkeleton;
 		exports.modelLabelOf = modelLabelOf;
 		exports.fmt = fmt;
 		exports.fmtCurrency = fmtCurrency;
