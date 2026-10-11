@@ -117,6 +117,14 @@ const tokenStatus = await layer.handle("/api/usage-stats/platform/token", { meth
 if (tokenStatus.ok === true && tokenStatus.configured === true) pass("/platform/token GET reports configured");
 else fail("/platform/token GET", JSON.stringify(tokenStatus));
 
+// 5b. Credential switch must not serve the previous account's cached numbers
+// (report repro 3): the token change has to invalidate the month/day caches.
+const beforeSwitch = fetchCounter;
+await layer.handle("/api/usage-stats/platform/token", { method: "POST", body: JSON.stringify({ token: "tok-other" }) });
+const afterSwitch = await layer.handle("/api/usage-stats/platform?month=8&year=2026");
+if (afterSwitch.ok === true && fetchCounter > beforeSwitch) pass("credential switch re-queries the month instead of the old cache");
+else fail("credential switch cache", `upstream calls ${beforeSwitch} → ${fetchCounter}, ok=${afterSwitch.ok}`);
+
 // 6. Sync: start/status/cancel route to the Rust commands.
 const syncStartedResult = await layer.handle("/api/usage-stats/platform/sync", { method: "POST" });
 if (syncStartedResult.ok === true && syncStarted === 1) pass("/platform/sync POST starts the login window");

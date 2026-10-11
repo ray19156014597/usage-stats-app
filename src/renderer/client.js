@@ -19,6 +19,32 @@ window.__ModuleLoader__.load({
 		let react_jsx_runtime = require("react/jsx-runtime");
 		let primitives = require("@deepseek-ai/dsh-client-ui-primitives");
 
+		/**
+		 * dsh 0.1.7 renamed every primitives icon: the trailing optical size became a
+		 * stroke-weight suffix (`IconRefreshOutline14` → `IconRefreshOutlineRegular`).
+		 * Resolve the new name first and keep the legacy one as a fallback for older
+		 * hosts — and never pass `undefined` to React, so a renamed or missing icon
+		 * degrades to "no icon" instead of a blank, unmounted panel.
+		 */
+		function resolveIcon(names) {
+			for (const name of names) {
+				const candidate = primitives[name];
+				if (typeof candidate === "function" || (typeof candidate === "object" && candidate !== null)) return candidate;
+			}
+			return null;
+		}
+		const ICONS = {
+			chevronLeft: resolveIcon(["IconChevronLeftOutlineRegular", "IconChevronLeftOutline14"]),
+			chevronRight: resolveIcon(["IconChevronRightOutlineRegular", "IconChevronRightOutline14"]),
+			close: resolveIcon(["IconCloseOutlineRegular", "IconCloseOutline16"]),
+			data: resolveIcon(["IconDataOutlineRegular", "IconDataOutline16"]),
+			refresh: resolveIcon(["IconRefreshOutlineRegular", "IconRefreshOutline14"]),
+			settings: resolveIcon(["IconSettingsOutlineRegular", "IconSettingsOutline14"]),
+			pin: resolveIcon(["IconPinOutlineRegular", "IconPinOutline14"]),
+			minimize: resolveIcon(["IconMinimizeOutlineRegular", "IconMinimizeOutline14"]),
+			maximize: resolveIcon(["IconMaximizeOutlineRegular", "IconMaximizeOutline14"])
+		};
+
 		//#region css
 		const css = [
 			// Design tokens (theme-aware glass) + base layout.
@@ -29,7 +55,17 @@ window.__ModuleLoader__.load({
 			// 只做「半透明 + 模糊」在纯色深背景上等于没有材质，必须让表面自身比页面更亮一档，
 			// 再叠一层极细的颗粒，才会读成"磨砂玻璃"而不是"半透明色块"。
 			// 阶梯原则：越靠里的表面越实、越亮（面板 < 卡片 < 内嵌块 < 浮层）。
-			".usg_layer{flex:none;align-items:center;width:100%;height:49px;margin:8px 0 0;display:flex;position:relative;--usg-blue:#4D6BFE;--usg-cost:#F0A64B;--usg-token:#6E8BFF;--usg-cache:#35C46A;--usg-write:#A98BFF;--usg-mat-1:48%;--usg-mat-1-veil:rgb(255 255 255 / 7%);--usg-mat-2:64%;--usg-mat-2-veil:rgb(255 255 255 / 9%);--usg-mat-3:80%;--usg-mat-3-veil:rgb(255 255 255 / 11%);--usg-mat-4:92%;--usg-mat-4-veil:rgb(255 255 255 / 6%);--usg-mat-grain:url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='140' height='140'><filter id='g'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/><feColorMatrix type='saturate' values='0'/></filter><rect width='140' height='140' filter='url(%23g)' opacity='0.06'/></svg>\");--usg-mat-glow:radial-gradient(120% 78% at 0% 0%,rgb(255 255 255 / 8%),transparent 58%);--usg-mat-blur-1:36px;--usg-mat-sat-1:190%;--usg-mat-blur-4:14px;--usg-mat-sat-4:150%;--usg-mat-line:color-mix(in srgb,#fff 14%,transparent);--usg-mat-line-soft:color-mix(in srgb,#fff 8%,transparent);--usg-mat-top:color-mix(in srgb,#fff 24%,transparent);--usg-mat-shadow:0 28px 72px rgba(0,0,0,.55),0 8px 22px rgba(0,0,0,.32),inset 0 1px 0 color-mix(in srgb,#fff 16%,transparent);--usg-line:var(--usg-mat-line);--usg-card:color-mix(in srgb,var(--dsw-alias-bg-base) var(--usg-mat-3),transparent);--usg-cellEmpty:color-mix(in srgb,var(--dsw-alias-label-tertiary) 9%,transparent);--usg-heatBase:transparent}",
+			".usg_layer{flex:none;align-items:center;width:100%;height:49px;margin:8px 0 0;display:flex;position:relative;--usg-blue:#4D6BFE;--usg-cost:#F0A64B;--usg-token:#6E8BFF;--usg-cache:#35C46A;--usg-write:#A98BFF;--usg-glass-scrim-1:40%;--usg-glass-scrim-2:46%;--usg-glass-scrim-3:52%;--usg-glass-scrim-4:62%;--usg-glass-tint-1:rgb(255 255 255 / 4.5%);--usg-glass-tint-2:rgb(255 255 255 / 6%);--usg-glass-tint-3:rgb(255 255 255 / 7.5%);--usg-glass-tint-4:rgb(255 255 255 / 9%);--usg-glass-blur:6px;--usg-glass-sat:1.9;--usg-glass-blur-4:4px;--usg-glass-sat-4:1.7;--usg-glass-lit-1:rgb(255 255 255 / 30%);--usg-glass-lit-2:rgb(255 255 255 / 26%);--usg-glass-lit-3:rgb(255 255 255 / 24%);--usg-glass-lit-4:rgb(255 255 255 / 34%);--usg-glass-reflect-1:rgb(255 255 255 / 10%);--usg-glass-reflect-2:rgb(255 255 255 / 9%);--usg-glass-reflect-3:rgb(255 255 255 / 8%);--usg-glass-reflect-4:rgb(255 255 255 / 12%);--usg-glass-bleed:rgb(255 255 255 / 5%);--usg-glass-edge-1:rgb(255 255 255 / 40%);--usg-glass-edge-2:rgb(255 255 255 / 8%);--usg-glass-edge-3:rgb(255 255 255 / 3%);--usg-glass-edge-4:rgb(255 255 255 / 20%);--usg-glass-topglow:radial-gradient(150% 88% at 50% -34%,rgb(255 255 255 / 15%),transparent 62%);--usg-glass-shadow-1:0 14px 40px rgb(0 0 0 / 38%),0 4px 14px rgb(0 0 0 / 22%);--usg-glass-shadow-2:0 6px 18px rgb(0 0 0 / 22%);--usg-glass-shadow-3:0 3px 10px rgb(0 0 0 / 16%);--usg-glass-shadow-4:0 12px 30px rgb(0 0 0 / 34%);--usg-glass-hairline:rgb(255 255 255 / 7%);--usg-hairline:rgb(255 255 255 / 14%);--usg-hairline-soft:rgb(255 255 255 / 8%);--usg-card:color-mix(in srgb,var(--dsw-alias-bg-base) var(--usg-glass-scrim-3),var(--usg-glass-tint-3));--usg-cellEmpty:color-mix(in srgb,var(--dsw-alias-label-tertiary) 9%,transparent);--usg-heatBase:transparent}",
+			// 液态玻璃三层结构：定向内阴影（受光边 / 弱反射 / 边缘渗光）+ mask-composite 渐变描边 + 贴顶柔光。
+			// 材质规则一律不写 position —— 曾经把 sticky 顶栏覆盖成 relative（文档「两个注意点」第一条）。
+			".usg_panel,.usg_accountCard,.usg_platformCard,.usg_stat,.usg_platformModel,.usg_tip{background-color:color-mix(in srgb,var(--dsw-alias-bg-base) var(--usg-glass-scrim),var(--usg-glass-tint));box-shadow:inset 1px 1px 0 var(--usg-glass-lit),inset -1px -1px 1.5px var(--usg-glass-reflect),inset 0 0 26px var(--usg-glass-bleed),var(--usg-glass-shadow),0 1px 0 var(--usg-glass-hairline)}",
+			".usg_panel::before,.usg_accountCard::before,.usg_platformCard::before,.usg_stat::before,.usg_platformModel::before,.usg_tip::before{content:\"\";position:absolute;inset:0;border-radius:inherit;padding:1px;background:linear-gradient(160deg,var(--usg-glass-edge-1) 0%,var(--usg-glass-edge-2) 34%,var(--usg-glass-edge-3) 62%,var(--usg-glass-edge-4) 100%);-webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);mask-composite:exclude;pointer-events:none}",
+			".usg_panel::after,.usg_accountCard::after,.usg_platformCard::after,.usg_tip::after{content:\"\";position:absolute;inset:0;border-radius:inherit;pointer-events:none;background:var(--usg-glass-topglow);mix-blend-mode:screen}",
+			".usg_panel>*,.usg_accountCard>*,.usg_platformCard>*,.usg_stat>*,.usg_platformModel>*,.usg_tip>*{position:relative;z-index:1}",
+			".usg_panel{--usg-glass-scrim:var(--usg-glass-scrim-1);--usg-glass-tint:var(--usg-glass-tint-1);--usg-glass-lit:var(--usg-glass-lit-1);--usg-glass-reflect:var(--usg-glass-reflect-1);--usg-glass-shadow:var(--usg-glass-shadow-1)}",
+			".usg_accountCard,.usg_platformCard{--usg-glass-scrim:var(--usg-glass-scrim-2);--usg-glass-tint:var(--usg-glass-tint-2);--usg-glass-lit:var(--usg-glass-lit-2);--usg-glass-reflect:var(--usg-glass-reflect-2);--usg-glass-shadow:var(--usg-glass-shadow-2)}",
+			".usg_stat,.usg_platformModel{--usg-glass-scrim:var(--usg-glass-scrim-3);--usg-glass-tint:var(--usg-glass-tint-3);--usg-glass-lit:var(--usg-glass-lit-3);--usg-glass-reflect:var(--usg-glass-reflect-3);--usg-glass-shadow:var(--usg-glass-shadow-3)}",
+			".usg_tip{--usg-glass-scrim:var(--usg-glass-scrim-4);--usg-glass-tint:var(--usg-glass-tint-4);--usg-glass-lit:var(--usg-glass-lit-4);--usg-glass-reflect:var(--usg-glass-reflect-4);--usg-glass-shadow:var(--usg-glass-shadow-4)}",
 			".usg_footerButtons{align-items:center;width:100%;display:flex}",
 			".usg_badge{width:100%;height:49px;color:var(--dsw-alias-label-primary);cursor:pointer;background:0 0;border:none;border-radius:12px;align-items:center;gap:8px;padding:0 8px 0 6px;font-family:inherit;font-size:14px;display:inline-flex;overflow:hidden}",
 			".usg_badge:hover{background:color-mix(in srgb,var(--usg-blue) 12%,transparent)}",
@@ -43,19 +79,22 @@ window.__ModuleLoader__.load({
 			// backdrop-filter 只留给真正压在页面内容上的表面（面板、tooltip）——
 			// 嵌在面板内部的卡片再模糊一次既看不见、又要多付一次 GPU 合成。
 			// 固定显示比例：面板尺寸在各显示器上保持一致（用户在 27 寸上反馈动态放大后过大），
-			// 只保留"窄窗口不溢出"这一条自适应。
-			".usg_panel{z-index:30;box-sizing:border-box;width:440px;max-width:calc(100vw - 24px);max-height:74vh;border-radius:16px;flex-direction:column;display:flex;position:fixed;bottom:128px;left:12px;overflow:hidden;transform-origin:left bottom;animation:usg-panel-in 380ms cubic-bezier(.22,1.08,.36,1);--dsh-scrollbar-thumb:var(--dsw-alias-scrollbar-bg-l2);--dsh-scrollbar-thumb-hover:var(--dsw-alias-scrollbar-hover-l2);border:1px solid var(--usg-mat-line);background-color:color-mix(in srgb,var(--dsw-alias-bg-base) var(--usg-mat-1),transparent);background-image:var(--usg-mat-grain),var(--usg-mat-glow),linear-gradient(158deg,var(--usg-mat-1-veil),transparent 52%);background-repeat:repeat,no-repeat,no-repeat;background-size:140px 140px,100% 100%,100% 100%;backdrop-filter:blur(var(--usg-mat-blur-1)) saturate(var(--usg-mat-sat-1));-webkit-backdrop-filter:blur(var(--usg-mat-blur-1)) saturate(var(--usg-mat-sat-1));box-shadow:var(--usg-mat-shadow)}",
+			// 只保留"窄窗口不溢出"这一条自适应。高度必须同时受视口限制 —— 只写 74vh 时
+			// 844×390 视口里 bottom:128px + 288.6px 会把顶部（标题栏）推出屏幕上方
+			// （实测 y = -26.6px）。min() 里扣除底部 128px 与顶部 12px 留白，高窗口下
+			// 74vh 仍然胜出，尺寸与原先逐像素一致。
+			".usg_panel{z-index:30;box-sizing:border-box;width:440px;max-width:calc(100vw - 24px);max-height:min(74vh,calc(100vh - 140px));border-radius:16px;flex-direction:column;display:flex;position:fixed;bottom:128px;left:12px;overflow:hidden;transform-origin:left bottom;animation:usg-panel-in 380ms cubic-bezier(.22,1.08,.36,1);--dsh-scrollbar-thumb:var(--dsw-alias-scrollbar-bg-l2);--dsh-scrollbar-thumb-hover:var(--dsw-alias-scrollbar-hover-l2);backdrop-filter:blur(var(--usg-glass-blur)) saturate(var(--usg-glass-sat));-webkit-backdrop-filter:blur(var(--usg-glass-blur)) saturate(var(--usg-glass-sat))}",
 			// 顶边一条渐隐的镜面高光：让玻璃有"厚度"，比整条 1px 实线更像真玻璃。
-			".usg_panel::before{content:\"\";position:absolute;left:0;right:0;top:0;height:1px;z-index:1;pointer-events:none;background:linear-gradient(90deg,transparent,var(--usg-mat-top) 16%,var(--usg-mat-top) 84%,transparent)}",
 			// 不支持 backdrop-filter，或用户要求"降低透明度"时：退回接近不透明的表面，先保证可读。
-			"@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.usg_panel{background:color-mix(in srgb,var(--dsw-alias-bg-base) 96%,transparent)}.usg_tip{background:color-mix(in srgb,var(--dsw-alias-bg-base) 99%,transparent)}}",
-			"@media (prefers-reduced-transparency:reduce){.usg_panel{background:color-mix(in srgb,var(--dsw-alias-bg-base) 97%,transparent);backdrop-filter:none;-webkit-backdrop-filter:none}.usg_tip{background:color-mix(in srgb,var(--dsw-alias-bg-base) 99%,transparent);backdrop-filter:none;-webkit-backdrop-filter:none}}",
+			"@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.usg_layer{--usg-glass-scrim-1:96%;--usg-glass-scrim-2:96%;--usg-glass-scrim-3:96%;--usg-glass-scrim-4:99%;--usg-glass-tint-1:transparent;--usg-glass-tint-2:transparent;--usg-glass-tint-3:transparent;--usg-glass-tint-4:transparent}}",
+			"@supports not (mask-composite:exclude){.usg_panel,.usg_accountCard,.usg_platformCard,.usg_stat,.usg_platformModel,.usg_tip{border:1px solid var(--usg-glass-hairline)}}",
+			"@media (prefers-reduced-transparency:reduce){.usg_layer{--usg-glass-scrim-1:97%;--usg-glass-scrim-2:97%;--usg-glass-scrim-3:97%;--usg-glass-scrim-4:99%;--usg-glass-tint-1:transparent;--usg-glass-tint-2:transparent;--usg-glass-tint-3:transparent;--usg-glass-tint-4:transparent}.usg_panel,.usg_tip{backdrop-filter:none;-webkit-backdrop-filter:none}}",
 			// 浅色主题：热力图层用「淡蓝底 + 品牌蓝加浓」的干净色阶（避免白底混紫的灰脏感）；空格用冷蓝灰。
 			// 判据优先取 DSH 主题快照（面板上的 data-usg-scheme，见 apply 里的 theme 桥接）：
 			// GUI 的主题偏好与系统偏好可以不一致，媒体查询只作为拿不到主题服务时的回退。
 			// 材质整组换成浅色版：底色更实（浅色下过透会发灰）、描边改冷灰、高光更强。
-			"@media (prefers-color-scheme:light){.usg_layer:not([data-usg-scheme=dark]){--usg-heatBase:#dfe6ff;--usg-cellEmpty:#e9edf7;--usg-cost:#B4650F;--usg-token:#3A5BD9;--usg-cache:#0E7C43;--usg-write:#6D46D9;--usg-mat-1:62%;--usg-mat-1-veil:rgb(255 255 255 / 50%);--usg-mat-2:76%;--usg-mat-2-veil:rgb(255 255 255 / 55%);--usg-mat-3:90%;--usg-mat-3-veil:rgb(255 255 255 / 62%);--usg-mat-4:97%;--usg-mat-4-veil:rgb(255 255 255 / 70%);--usg-mat-glow:radial-gradient(120% 78% at 0% 0%,rgb(255 255 255 / 62%),transparent 58%);--usg-mat-blur-1:32px;--usg-mat-sat-1:175%;--usg-mat-blur-4:12px;--usg-mat-sat-4:145%;--usg-mat-line:color-mix(in srgb,#0f1115 10%,transparent);--usg-mat-line-soft:color-mix(in srgb,#0f1115 6%,transparent);--usg-mat-top:color-mix(in srgb,#fff 92%,transparent);--usg-mat-shadow:0 26px 60px rgba(23,32,51,.20),0 6px 16px rgba(23,32,51,.10),inset 0 1px 0 rgba(255,255,255,.9)}.usg_layer:not([data-usg-scheme=dark]) .usg_cell{box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--usg-blue) 14%,transparent)}}",
-			".usg_layer[data-usg-scheme=light]{--usg-heatBase:#dfe6ff;--usg-cellEmpty:#e9edf7;--usg-cost:#B4650F;--usg-token:#3A5BD9;--usg-cache:#0E7C43;--usg-write:#6D46D9;--usg-mat-1:62%;--usg-mat-1-veil:rgb(255 255 255 / 50%);--usg-mat-2:76%;--usg-mat-2-veil:rgb(255 255 255 / 55%);--usg-mat-3:90%;--usg-mat-3-veil:rgb(255 255 255 / 62%);--usg-mat-4:97%;--usg-mat-4-veil:rgb(255 255 255 / 70%);--usg-mat-glow:radial-gradient(120% 78% at 0% 0%,rgb(255 255 255 / 62%),transparent 58%);--usg-mat-blur-1:32px;--usg-mat-sat-1:175%;--usg-mat-blur-4:12px;--usg-mat-sat-4:145%;--usg-mat-line:color-mix(in srgb,#0f1115 10%,transparent);--usg-mat-line-soft:color-mix(in srgb,#0f1115 6%,transparent);--usg-mat-top:color-mix(in srgb,#fff 92%,transparent);--usg-mat-shadow:0 26px 60px rgba(23,32,51,.20),0 6px 16px rgba(23,32,51,.10),inset 0 1px 0 rgba(255,255,255,.9)}",
+			"@media (prefers-color-scheme:light){.usg_layer:not([data-usg-scheme=dark]){--usg-heatBase:#dfe6ff;--usg-cellEmpty:#e9edf7;--usg-cost:#B4650F;--usg-token:#3A5BD9;--usg-cache:#0E7C43;--usg-write:#6D46D9;--usg-glass-scrim-1:62%;--usg-glass-scrim-2:72%;--usg-glass-scrim-3:84%;--usg-glass-scrim-4:94%;--usg-glass-tint-1:transparent;--usg-glass-tint-2:transparent;--usg-glass-tint-3:transparent;--usg-glass-tint-4:transparent;--usg-glass-blur:4px;--usg-glass-sat:1.4;--usg-glass-blur-4:3px;--usg-glass-sat-4:1.3;--usg-glass-lit-1:rgb(255 255 255 / 60%);--usg-glass-lit-2:rgb(255 255 255 / 58%);--usg-glass-lit-3:rgb(255 255 255 / 56%);--usg-glass-lit-4:rgb(255 255 255 / 64%);--usg-glass-reflect-1:rgb(255 255 255 / 22%);--usg-glass-reflect-2:rgb(255 255 255 / 19%);--usg-glass-reflect-3:rgb(255 255 255 / 18%);--usg-glass-reflect-4:rgb(255 255 255 / 24%);--usg-glass-bleed:rgb(255 255 255 / 24%);--usg-glass-edge-1:rgb(255 255 255 / 62%);--usg-glass-edge-2:rgb(255 255 255 / 20%);--usg-glass-edge-3:rgb(255 255 255 / 13%);--usg-glass-edge-4:rgb(150 170 200 / 18%);--usg-glass-topglow:radial-gradient(150% 88% at 50% -34%,rgb(255 255 255 / 55%),transparent 62%);--usg-glass-shadow-1:0 14px 40px rgb(15 30 60 / 14%),0 4px 12px rgb(15 30 60 / 8%);--usg-glass-shadow-2:0 6px 18px rgb(15 30 60 / 10%);--usg-glass-shadow-3:0 3px 10px rgb(15 30 60 / 8%);--usg-glass-shadow-4:0 12px 30px rgb(15 30 60 / 16%);--usg-glass-hairline:rgb(255 255 255 / 55%);--usg-hairline:rgb(15 17 21 / 10%);--usg-hairline-soft:rgb(15 17 21 / 6%)}.usg_layer:not([data-usg-scheme=dark]) .usg_cell{box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--usg-blue) 14%,transparent)}}",
+			".usg_layer[data-usg-scheme=light]{--usg-heatBase:#dfe6ff;--usg-cellEmpty:#e9edf7;--usg-cost:#B4650F;--usg-token:#3A5BD9;--usg-cache:#0E7C43;--usg-write:#6D46D9;--usg-glass-scrim-1:62%;--usg-glass-scrim-2:72%;--usg-glass-scrim-3:84%;--usg-glass-scrim-4:94%;--usg-glass-tint-1:transparent;--usg-glass-tint-2:transparent;--usg-glass-tint-3:transparent;--usg-glass-tint-4:transparent;--usg-glass-blur:4px;--usg-glass-sat:1.4;--usg-glass-blur-4:3px;--usg-glass-sat-4:1.3;--usg-glass-lit-1:rgb(255 255 255 / 60%);--usg-glass-lit-2:rgb(255 255 255 / 58%);--usg-glass-lit-3:rgb(255 255 255 / 56%);--usg-glass-lit-4:rgb(255 255 255 / 64%);--usg-glass-reflect-1:rgb(255 255 255 / 22%);--usg-glass-reflect-2:rgb(255 255 255 / 19%);--usg-glass-reflect-3:rgb(255 255 255 / 18%);--usg-glass-reflect-4:rgb(255 255 255 / 24%);--usg-glass-bleed:rgb(255 255 255 / 24%);--usg-glass-edge-1:rgb(255 255 255 / 62%);--usg-glass-edge-2:rgb(255 255 255 / 20%);--usg-glass-edge-3:rgb(255 255 255 / 13%);--usg-glass-edge-4:rgb(150 170 200 / 18%);--usg-glass-topglow:radial-gradient(150% 88% at 50% -34%,rgb(255 255 255 / 55%),transparent 62%);--usg-glass-shadow-1:0 14px 40px rgb(15 30 60 / 14%),0 4px 12px rgb(15 30 60 / 8%);--usg-glass-shadow-2:0 6px 18px rgb(15 30 60 / 10%);--usg-glass-shadow-3:0 3px 10px rgb(15 30 60 / 8%);--usg-glass-shadow-4:0 12px 30px rgb(15 30 60 / 16%);--usg-glass-hairline:rgb(255 255 255 / 55%);--usg-hairline:rgb(15 17 21 / 10%);--usg-hairline-soft:rgb(15 17 21 / 6%)}",
 			".usg_layer[data-usg-scheme=light] .usg_cell{box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--usg-blue) 14%,transparent)}",
 			".usg_panel button:focus-visible,.usg_panel select:focus-visible,.usg_panel input:focus-visible{outline:2px solid color-mix(in srgb,var(--usg-blue) 62%,transparent);outline-offset:1px}",
 			// 面板动效：从徽标所在的左下角「长出来」（位移 + 轻微缩放），380ms 带一点过冲；
@@ -64,8 +103,8 @@ window.__ModuleLoader__.load({
 			"@keyframes usg-panel-out{from{opacity:1;transform:none}to{opacity:0;transform:translateY(10px) scale(.972)}}",
 			"@keyframes usg-body-in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}",
 			".usg_panel[data-closing]{animation:usg-panel-out 250ms cubic-bezier(.4,0,1,1) forwards;pointer-events:none}",
-			"@media (prefers-reduced-motion:reduce){.usg_panel,.usg_panel[data-closing]{animation-duration:1ms}.usg_body{animation:none}.usg_skelBlock::after{animation:none}}",
-			".usg_header{box-sizing:border-box;border-bottom:1px solid var(--usg-mat-line-soft);background-color:color-mix(in srgb,var(--dsw-alias-bg-base) var(--usg-mat-2),transparent);background-image:linear-gradient(180deg,var(--usg-mat-2-veil),transparent);flex:none;justify-content:space-between;align-items:center;min-height:48px;padding:9px 12px;display:flex}",
+			"@media (prefers-reduced-motion:reduce){.usg_panel,.usg_panel[data-closing]{animation-duration:1ms}}",
+			".usg_header{box-sizing:border-box;background-color:color-mix(in srgb,var(--dsw-alias-bg-base) var(--usg-glass-scrim-2),var(--usg-glass-tint-2));border-bottom:1px solid var(--usg-hairline-soft);flex:none;justify-content:space-between;align-items:center;min-height:48px;padding:9px 12px;display:flex}",
 			".usg_headerLeft{align-items:center;gap:9px;flex:1;min-width:0;display:flex}",
 			".usg_headerLeft::before{content:\"\";width:3px;height:14px;border-radius:2px;flex:none;background:linear-gradient(180deg,var(--usg-blue),color-mix(in srgb,var(--usg-blue) 40%,transparent))}",
 			".usg_title{color:var(--dsw-alias-label-primary);font-size:14px;font-weight:600;line-height:20px;letter-spacing:.01em}",
@@ -98,7 +137,7 @@ window.__ModuleLoader__.load({
 			".usg_balanceRowsCompact{color:var(--dsw-alias-label-caption);flex-wrap:wrap;gap:2px 12px;font-size:11px;line-height:16px;font-variant-numeric:tabular-nums;display:flex}",
 			".usg_balanceRow{justify-content:space-between;display:flex}",
 			// Cards — 比面板实一档的玻璃卡：保留品牌色淡染，靠 1px 内高光成形，不再二次模糊。
-			".usg_accountCard{--usg-providerAccent:#4D6BFE;box-sizing:border-box;border:1px solid var(--usg-mat-line);background-color:color-mix(in srgb,var(--dsw-alias-bg-base) var(--usg-mat-2),transparent);background-image:linear-gradient(150deg,color-mix(in srgb,var(--usg-providerAccent) 10%,transparent),transparent 52%),linear-gradient(160deg,var(--usg-mat-2-veil),transparent 62%);border-radius:12px;padding:12px 13px;display:flex;flex-direction:column;gap:10px;box-shadow:inset 0 1px 0 var(--usg-mat-top)}",
+			".usg_accountCard{--usg-providerAccent:#4D6BFE;box-sizing:border-box;position:relative;background-image:linear-gradient(150deg,color-mix(in srgb,var(--usg-providerAccent) 10%,transparent),transparent 52%);border-radius:12px;padding:12px 13px;display:flex;flex-direction:column;gap:10px}",
 			".usg_accountCard[data-provider=deepseek],.usg_accountCard[data-provider=deepseek-official]{--usg-providerAccent:#4D6BFE}",
 			".usg_accountHead{align-items:center;gap:9px;display:flex}",
 			".usg_accountMark{width:25px;height:25px;color:#fff;background:linear-gradient(135deg,var(--usg-providerAccent),color-mix(in srgb,var(--usg-providerAccent) 62%,#000));border-radius:9px;justify-content:center;align-items:center;font-size:10px;font-weight:700;display:flex;box-shadow:0 4px 14px color-mix(in srgb,var(--usg-providerAccent) 35%,transparent),inset 0 1px 0 rgba(255,255,255,.28)}",
@@ -115,7 +154,7 @@ window.__ModuleLoader__.load({
 			".usg_statsRow.usg_bandCompact .usg_stat{padding:6px 9px;border-radius:12px}",
 			".usg_statsRow.usg_bandCompact .usg_statValue{font-size:13px;line-height:20px}",
 			".usg_statsRow.usg_bandCompact .usg_statLabel{font-size:10px;white-space:nowrap}",
-			".usg_stat{box-sizing:border-box;border:1px solid var(--usg-mat-line-soft);border-radius:12px;flex:1;flex-direction:column;gap:2px;padding:10px 12px;display:flex;background-color:color-mix(in srgb,var(--dsw-alias-bg-base) var(--usg-mat-3),transparent);background-image:linear-gradient(160deg,var(--usg-mat-3-veil),transparent 70%);box-shadow:inset 0 1px 0 var(--usg-mat-top)}",
+			".usg_stat{box-sizing:border-box;position:relative;border-radius:12px;flex:1;flex-direction:column;gap:2px;padding:10px 12px;display:flex}",
 			".usg_statValue{color:var(--dsw-alias-label-primary);font-size:16px;font-weight:600;line-height:24px;font-variant-numeric:tabular-nums;font-feature-settings:\"tnum\";letter-spacing:.01em;white-space:nowrap}",
 			".usg_statLabel{color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px}",
 			// 语义色：钱走琥珀、Token 走蓝、请求数保持中性灰 —— 一行 6 格里三类信息一眼分得开。
@@ -139,7 +178,7 @@ window.__ModuleLoader__.load({
 			".usg_weekLabel{font-size:10px;line-height:16px;text-align:center}",
 			".usg_heatRow{grid-template-columns:repeat(7,1fr);gap:4px;min-width:0;display:grid}",
 			// Heatmap cells — rounded glass tiles; levels come from cellColor.
-			".usg_cell{aspect-ratio:1/1;min-width:0;width:100%;border-radius:8px;border:0;padding:0;cursor:pointer;justify-content:center;align-items:center;font-family:inherit;display:flex;box-shadow:inset 0 0 0 1px rgba(255,255,255,.03),inset 0 1px 0 rgba(255,255,255,.05);transition:box-shadow .12s ease;position:relative}",
+			".usg_cell{aspect-ratio:1/1;min-width:0;width:100%;border-radius:8px;border:0;padding:0;cursor:pointer;justify-content:center;align-items:center;font-family:inherit;display:flex;box-shadow:inset 1px 1px 0 rgb(255 255 255 / 7%),inset -1px -1px 0 rgb(255 255 255 / 4%),inset 0 0 0 1px rgb(255 255 255 / 4%);transition:box-shadow .12s ease;position:relative}",
 			// 只做描边+光晕，不做 transform 缩放：缩放的格子会撑出可滚动溢出区，
 			// 在 .usg_heat(overflow-x:auto) 的最后一列产生横向滚条。
 			".usg_cell:hover{box-shadow:inset 0 0 0 1px var(--dsw-alias-label-secondary),0 5px 14px color-mix(in srgb,var(--usg-blue) 32%,transparent);z-index:1}",
@@ -191,6 +230,7 @@ window.__ModuleLoader__.load({
 			".usg_dayRingCenter{position:absolute;inset:0;flex-direction:column;align-items:center;justify-content:center;gap:2px;display:flex}",
 			".usg_dayRingCenter b{color:var(--dsw-alias-label-primary);font-size:16px;font-weight:700;font-variant-numeric:tabular-nums}",
 			".usg_dayRingCenter span{color:var(--dsw-alias-label-tertiary);font-size:10px;line-height:14px}",
+			".usg_dayRingCenter span.usg_dayRingNote{font-size:9px;line-height:11px;opacity:.72}",
 			".usg_dayDivider{height:1px;flex:none;background:color-mix(in srgb,var(--dsw-alias-label-tertiary) 14%,transparent);margin:10px 0;width:100%}",
 			".usg_hourBlock{margin:12px 0 4px}",
 			".usg_hourChart{display:flex;align-items:flex-end;gap:2px;height:64px}",
@@ -215,9 +255,9 @@ window.__ModuleLoader__.load({
 			".usg_compLegendItem{align-items:center;gap:4px;display:inline-flex}",
 			".usg_compLegendItem i{width:8px;height:8px;border-radius:3px;flex:none;box-shadow:0 0 4px color-mix(in srgb,var(--usg-blue) 30%,transparent)}",
 			".usg_compLegendItem b{color:var(--dsw-alias-label-primary);font-weight:600;font-variant-numeric:tabular-nums}",
-			".usg_platformCard{box-sizing:border-box;border:1px solid var(--usg-mat-line);background-color:color-mix(in srgb,var(--dsw-alias-bg-base) var(--usg-mat-2),transparent);background-image:linear-gradient(160deg,color-mix(in srgb,var(--usg-blue) 7%,transparent),transparent 46%),linear-gradient(160deg,var(--usg-mat-2-veil),transparent 62%);border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:10px;box-shadow:inset 0 1px 0 var(--usg-mat-top)}",
+			".usg_platformCard{box-sizing:border-box;position:relative;background-image:linear-gradient(160deg,color-mix(in srgb,var(--usg-blue) 7%,transparent),transparent 46%);border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:10px}",
 			".usg_platformHint{color:var(--dsw-alias-label-tertiary);margin:0;font-size:11px;line-height:17px}",
-			".usg_platformModel{box-sizing:border-box;border:1px solid var(--usg-mat-line-soft);border-radius:12px;padding:6px 10px;display:flex;flex-direction:column;gap:4px;background-color:color-mix(in srgb,var(--dsw-alias-bg-base) var(--usg-mat-3),transparent);background-image:linear-gradient(160deg,var(--usg-mat-3-veil),transparent 70%);box-shadow:inset 0 1px 0 var(--usg-mat-top)}",
+			".usg_platformModel{box-sizing:border-box;position:relative;border-radius:12px;padding:6px 10px;display:flex;flex-direction:column;gap:4px}",
 			".usg_platformModelHead{align-items:center;gap:8px;display:flex}",
 			".usg_platformModelName{color:var(--dsw-alias-label-primary);min-width:0;text-overflow:ellipsis;white-space:nowrap;flex:1;font-size:12px;font-weight:600;line-height:18px;overflow:hidden}",
 			".usg_platformModelCost{color:var(--dsw-alias-label-primary);flex:none;font-size:12px;line-height:18px;font-variant-numeric:tabular-nums}",
@@ -226,12 +266,12 @@ window.__ModuleLoader__.load({
 			".usg_platformChartNote{color:var(--dsw-alias-label-tertiary);font-size:10px;line-height:16px;font-variant-numeric:tabular-nums}",
 			".usg_platformDivider{height:1px;background:color-mix(in srgb,var(--dsw-alias-label-tertiary) 14%,transparent);margin:2px 0 10px;flex:none}",
 			".usg_settingsActions{align-items:center;gap:7px;margin-top:9px;display:flex;flex-wrap:wrap}",
-			".usg_settingsButton{cursor:pointer;box-sizing:border-box;border:1px solid var(--usg-mat-line-soft);background-color:var(--usg-card);background-image:linear-gradient(160deg,var(--usg-mat-3-veil),transparent 70%);color:var(--dsw-alias-label-primary);border-radius:8px;padding:5px 11px;font:inherit;font-size:12px;line-height:18px;transition:background .12s ease,transform .08s ease}",
+			".usg_settingsButton{cursor:pointer;box-sizing:border-box;border:1px solid var(--usg-hairline-soft);background-color:var(--usg-card);color:var(--dsw-alias-label-primary);border-radius:8px;padding:5px 11px;font:inherit;font-size:12px;line-height:18px;box-shadow:inset 1px 1px 0 var(--usg-glass-lit-3),inset -1px -1px 1px var(--usg-glass-reflect-3);transition:background-color .16s ease,box-shadow .16s ease,transform .08s ease}",
 			".usg_settingsButton:hover:not(:disabled){background:color-mix(in srgb,var(--usg-blue) 10%,transparent);transform:translateY(-1px)}",
 			".usg_settingsButton:disabled{opacity:.5;cursor:default;transform:none}",
 			".usg_settingsButton[data-kind=primary]{color:#fff;background:linear-gradient(135deg,var(--usg-blue),color-mix(in srgb,var(--usg-blue) 68%,#000));border-color:transparent;box-shadow:0 4px 14px color-mix(in srgb,var(--usg-blue) 38%,transparent)}",
 			".usg_settingsButton[data-kind=danger]{color:var(--dsw-alias-state-error-primary);border:1px solid color-mix(in srgb,var(--dsw-alias-state-error-primary) 30%,transparent)}",
-			".usg_settingsInput{box-sizing:border-box;width:100%;color:var(--dsw-alias-label-primary);background-color:var(--usg-card);background-image:linear-gradient(160deg,var(--usg-mat-3-veil),transparent 70%);border:1px solid var(--usg-mat-line-soft);border-radius:8px;padding:6px 9px;font:inherit;font-size:12px;line-height:18px}",
+			".usg_settingsInput{box-sizing:border-box;width:100%;color:var(--dsw-alias-label-primary);background-color:var(--usg-card);border:1px solid var(--usg-hairline-soft);border-radius:8px;padding:6px 9px;font:inherit;font-size:12px;line-height:18px;box-shadow:inset 1px 1px 0 var(--usg-glass-lit-3),inset -1px -1px 1px var(--usg-glass-reflect-3)}",
 			".usg_settingsInput:focus{outline:2px solid color-mix(in srgb,var(--usg-blue) 40%,transparent);outline-offset:1px}",
 			// 未保存的输入用琥珀描边提示，保存后自动消失。
 			".usg_settingsInput[data-dirty]{border-color:color-mix(in srgb,var(--usg-cost) 55%,transparent)}",
@@ -262,9 +302,20 @@ window.__ModuleLoader__.load({
 			// 容器是被程序聚焦的（打开面板 / 切换视图），不要画焦点环。
 			".usg_panel:focus,.usg_body:focus{outline:none}",
 			// 面板自带 tooltip：原生 title 有约 1 秒延迟，且样式由系统决定；这里与面板同一套毛玻璃。
-			".usg_tip{position:absolute;z-index:40;pointer-events:none;max-width:260px;color:var(--dsw-alias-label-primary);background-color:color-mix(in srgb,var(--dsw-alias-bg-base) var(--usg-mat-4),transparent);background-image:linear-gradient(160deg,var(--usg-mat-4-veil),transparent 70%);border:1px solid var(--usg-mat-line);border-radius:10px;padding:5px 9px;font-size:11px;line-height:16px;font-variant-numeric:tabular-nums;box-shadow:0 10px 28px rgba(0,0,0,.28),inset 0 1px 0 var(--usg-mat-top);backdrop-filter:blur(var(--usg-mat-blur-4)) saturate(var(--usg-mat-sat-4));-webkit-backdrop-filter:blur(var(--usg-mat-blur-4)) saturate(var(--usg-mat-sat-4));transform:translate(-50%,-100%);animation:usg-tip-in 120ms ease-out both}",
+			".usg_tip{position:absolute;z-index:40;pointer-events:none;width:max-content;max-width:260px;color:var(--dsw-alias-label-primary);border-radius:10px;padding:5px 9px;font-size:11px;line-height:16px;font-variant-numeric:tabular-nums;backdrop-filter:blur(var(--usg-glass-blur-4)) saturate(var(--usg-glass-sat-4));-webkit-backdrop-filter:blur(var(--usg-glass-blur-4)) saturate(var(--usg-glass-sat-4));transform:translate(-50%,-100%);animation:usg-tip-in 120ms ease-out both}",
 			"@keyframes usg-tip-in{from{opacity:0;transform:translate(-50%,calc(-100% + 4px))}to{opacity:1;transform:translate(-50%,-100%)}}",
-			"@media (prefers-reduced-motion:reduce){.usg_tip{animation-duration:1ms}.usg_body[data-dir]{animation-duration:1ms}}"
+			"@media (prefers-reduced-motion:reduce){.usg_tip{animation-duration:1ms}.usg_body[data-dir]{animation-duration:1ms}}",
+			".usg_tip[data-side=below]{transform:translate(-50%,0);animation-name:usg-tip-in-below}",
+			"@keyframes usg-tip-in-below{from{opacity:0;transform:translate(-50%,4px)}to{opacity:1;transform:translate(-50%,0)}}",
+			// 交互反馈：光只沿边缘走 —— 指针跟随的径向亮斑会在卡片中部形成眩光（文档实测 +52/255），已排除该做法。
+			".usg_iconButton:active:not(:disabled),.usg_navButton:active:not(:disabled),.usg_back:active,.usg_todayButton:active,.usg_settingsButton:active:not(:disabled),.usg_retry:active{transform:translateY(.5px);box-shadow:inset 0 2px 6px rgb(0 0 0 / 26%)}",
+			".usg_cell:active{box-shadow:inset 0 0 0 1px var(--dsw-alias-label-secondary),inset 0 2px 6px rgb(0 0 0 / 30%)}",
+			".usg_day:active{background:color-mix(in srgb,var(--usg-blue) 14%,transparent)}",
+			".usg_settingsButton:hover:not(:disabled){background-color:color-mix(in srgb,var(--usg-blue) 10%,var(--usg-card));box-shadow:inset 1px 1px 0 var(--usg-glass-lit-3),inset -1px -1px 1px var(--usg-glass-reflect-3),0 2px 8px rgb(0 0 0 / 14%);transform:translateY(-1px)}",
+			// 「减少动态效果」必须排在所有基础动效之后：同特异性下后者胜出，之前这条规则写在
+			// .usg_body 基础动画之前，被它整条覆盖（实测计算样式仍是 usg-body-in / 420ms），
+			// 骨架 shimmer 也一样被后面的规则复活。收尾统一收口，新增动效要加在这里。
+			"@media (prefers-reduced-motion:reduce){.usg_panel,.usg_panel[data-closing]{animation-duration:1ms}.usg_body,.usg_body[data-dir]{animation:none}.usg_skelBlock::after{animation:none}.usg_tip{animation-duration:1ms}}",
 		].join("");
 		const tagId = "dsh-usage-stats/UsageStats.module.css";
 		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId) + "]") === null) {
@@ -365,6 +416,7 @@ window.__ModuleLoader__.load({
 			dayRingTrack: "usg_dayRingTrack",
 			dayRingArc: "usg_dayRingArc",
 			dayRingCenter: "usg_dayRingCenter",
+			dayRingNote: "usg_dayRingNote",
 			hourBlock: "usg_hourBlock",
 			hourChart: "usg_hourChart",
 			hourCol: "usg_hourCol",
@@ -445,6 +497,20 @@ window.__ModuleLoader__.load({
 			return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
 		}
 
+		/**
+		 * The same day-of-month inside `monthKey` (`YYYY-MM`), clamped to that
+		 * month's length: 2026-10-31 → 2026-11-30. Used to decide where the
+		 * keyboard focus lands after PageUp/PageDown switches months.
+		 */
+		function dayInMonth(dayKey, monthKey) {
+			const parts = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dayKey));
+			const year = Number(monthKey.slice(0, 4));
+			const month = Number(monthKey.slice(5, 7));
+			const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+			const day = parts === null ? 1 : Math.min(Number(parts[3]), lastDay);
+			return `${monthKey}-${String(day).padStart(2, "0")}`;
+		}
+
 		/** Localized `YYYY-MM` → e.g. "2026年8月" / "Aug 2026". */
 		function monthLabelOf(key, translate) {
 			const [year, month] = key.split("-").map(Number);
@@ -459,6 +525,17 @@ window.__ModuleLoader__.load({
 		/** Hit-rate display: null/undefined → "—". */
 		function fmtHit(hitRate) {
 			return hitRate === null || hitRate === void 0 ? "—" : `${hitRate}%`;
+		}
+
+		/**
+		 * 把 tooltip 的横向中心夹进容器的 `[min, max]`（容器内的相对坐标）。
+		 * `half` 是小窗半宽：调用点**只在这里**加一次 —— 之前 `showTip` 先把半宽算进
+		 * 边界、`useLayoutEffect` 又加一次，半宽被算两次，小窗被推到离格子 ~130px 的地方。
+		 * 小窗比容器还宽时直接居中（否则 min > max 会夹出一个乱值）。
+		 */
+		function fitTipX(center, min, max, half) {
+			if (max - min <= half * 2) return (min + max) / 2;
+			return Math.min(Math.max(center, min + half), max - half);
 		}
 
 		/** Currency-aware amount: `¥ 36.44` / `$ 12.00` (Intl, fallback keeps the raw value). */
@@ -634,6 +711,8 @@ window.__ModuleLoader__.load({
 			const [accountLoading, setAccountLoading] = react.useState(false);
 			const [accountError, setAccountError] = react.useState(null);
 			const [refreshedAt, setRefreshedAt] = react.useState(null);
+			const [usageStale, setUsageStale] = react.useState(false);
+			const [usagePartial, setUsagePartial] = react.useState(false);
 			const [platform, setPlatform] = react.useState(null);
 			const [platformTotal, setPlatformTotal] = react.useState(null);
 			const [recentPlat, setRecentPlat] = react.useState(null);
@@ -657,6 +736,13 @@ window.__ModuleLoader__.load({
 			const [dayDetailLoading, setDayDetailLoading] = react.useState(false);
 			const dayDetailSeqRef = react.useRef(0);
 			const recentPlatSeqRef = react.useRef(0);
+			// 切月后待聚焦的日期 + 一个不断自增的序号：热力格用序号判断"这是新的一次
+			// 切月请求"，避免每次重渲染都抢焦点。
+			const monthFocusRef = react.useRef({ key: null, nonce: 0 });
+			// 网页登录同步：轮询序号 + 定时器句柄，停止/卸载后旧响应不得改写新状态。
+			const syncSeqRef = react.useRef(0);
+			const syncCancelledRef = react.useRef(false);
+			const syncTimerRef = react.useRef(null);
 			const mountedRef = react.useRef(true);
 			const panelRef = react.useRef(null);
 			const layerRef = react.useRef(null);
@@ -666,11 +752,15 @@ window.__ModuleLoader__.load({
 			const [viewDir, setViewDir] = react.useState(null);
 			const [tip, setTip] = react.useState(null);
 			const usageLoaderRef = react.useRef(null);
+			const staleTimerRef = react.useRef(null);
 			const accountLoaderRef = react.useRef(null);
 			const platformLoaderRef = react.useRef(null);
 			if (usageLoaderRef.current === null) usageLoaderRef.current = createLoader();
 			if (accountLoaderRef.current === null) accountLoaderRef.current = createLoader();
 			if (platformLoaderRef.current === null) platformLoaderRef.current = createLoader();
+			// 平台口径是否可用：热力图数据源、轮询范围与日详情请求都取决于它。
+			// 放在回调之前声明，回调的依赖数组在渲染时就要读它（否则 TDZ）。
+			const platformActive = platform !== null && Array.isArray(platform.days) && platform.days.length > 0;
 
 			// 打开/关闭：关闭先播退场动效（data-closing）再卸载节点；这期间「逻辑上
 			// 已关闭」，所以轮询与数据请求立即停止，不会在退场动画里偷偷刷新。
@@ -707,6 +797,7 @@ window.__ModuleLoader__.load({
 
 			react.useEffect(() => () => {
 				if (closeTimerRef.current !== null) window.clearTimeout(closeTimerRef.current);
+				if (staleTimerRef.current !== null) window.clearTimeout(staleTimerRef.current);
 			}, []);
 
 			// ---- 独立版专属：无边框窗口的 Tauri 桥 ----------------------------------
@@ -795,10 +886,26 @@ window.__ModuleLoader__.load({
 						return;
 					}
 					setUsage(payload);
+					// 会话列表读取失败时服务端会标记 partial：保留旧缓存、不清理，数字可能不完整。
+					setUsagePartial(payload.partial === true);
+					// 服务端返回的是磁盘上的旧快照（宿主刚重启或正在后台重算）：先把图画出来，
+					// 但不能谎报「更新于现在」——保留真实旧时间，几秒后再拉一次拿新数据。
+					if (payload.stale === true) {
+						setUsageStale(true);
+						if (staleTimerRef.current === null) {
+							staleTimerRef.current = window.setTimeout(() => {
+								staleTimerRef.current = null;
+								if (mountedRef.current) loadUsage();
+							}, 6000);
+						}
+						return;
+					}
+					setUsageStale(false);
 					setRefreshedAt(Date.now());
 				}).catch((error) => {
 					if (!mountedRef.current || !usageLoaderRef.current.isCurrent(seq)) return;
 					setUsageError(error instanceof Error ? error.message : String(error));
+					setUsageStale(false);
 				});
 			}, []);
 
@@ -895,6 +1002,23 @@ window.__ModuleLoader__.load({
 				});
 			}, []);
 
+			// 选中平台日时的当日细数据（小时分布 + 按 API Key）。独立成回调后，手动刷新、
+			// 换 Token 与五分钟轮询都能带上它 —— 之前它只挂在一个依赖 [selectedDay,
+			// platformActive] 的 effect 上，同一天刷新月度数据时两个依赖都没变，
+			// 于是顶部总量涨了、按 API Key 与小时图还是旧值（报告实测新增请求 0 次）。
+			const loadDayDetail = react.useCallback((date, force = false) => {
+				const seq = ++dayDetailSeqRef.current;
+				setDayDetailLoading(true);
+				return fetchJson(`/api/usage-stats/platform/day?date=${date}${force ? "&refresh=1" : ""}`).then((payload) => {
+					if (!mountedRef.current || dayDetailSeqRef.current !== seq) return;
+					setDayDetail(payload?.ok === true ? payload : null);
+				}).catch(() => {
+					if (mountedRef.current && dayDetailSeqRef.current === seq) setDayDetail(null);
+				}).finally(() => {
+					if (mountedRef.current && dayDetailSeqRef.current === seq) setDayDetailLoading(false);
+				});
+			}, []);
+
 			const loadTokenStatus = react.useCallback(() => {				fetchJson("/api/usage-stats/platform/token").then((payload) => {
 					if (!mountedRef.current || payload?.ok !== true) return;
 					setTokenStatus({ configured: payload.configured === true, source: payload.source ?? null });
@@ -918,16 +1042,18 @@ window.__ModuleLoader__.load({
 					setTokenInput("");
 					setTokenStatus({ configured: true, source: "stored" });
 					setTokenJustSaved(true);
-					// 同步更新显示：保存后立即拉取最新平台用量与累计。
+					// 同步更新显示：保存后立即拉取最新平台用量与累计。日详情也要重拉 ——
+					// 换了凭据后它属于上一个账号（小时图与按 API Key 会串号）。
 					loadPlatform(platformMonth, true);
 					loadPlatformTotal(true);
 					loadRecentPlatform(true);
+					if (selectedDay !== null && platformActive) loadDayDetail(selectedDay, true);
 				}).catch((error) => {
 					if (mountedRef.current) setTokenMessage(translate("token.saveFailed", { message: error instanceof Error ? error.message : String(error) }));
 				}).finally(() => {
 					if (mountedRef.current) setTokenBusy(false);
 				});
-			}, [tokenInput, platformMonth, loadPlatform, loadPlatformTotal, loadRecentPlatform, translate]);
+			}, [tokenInput, platformMonth, selectedDay, platformActive, loadPlatform, loadPlatformTotal, loadRecentPlatform, loadDayDetail, translate]);
 
 			/** DELETE the stored token and reset the platform panel to its hint state. */
 			const clearToken = react.useCallback(() => {
@@ -945,6 +1071,10 @@ window.__ModuleLoader__.load({
 					setPlatformTotal(null);
 					setRecentPlat(null);
 					setPlatformError(null);
+					// 日详情属于上一个凭据：立即作废，等新数据到来。
+					dayDetailSeqRef.current += 1;
+					setDayDetail(null);
+					setDayDetailLoading(false);
 				}).catch((error) => {
 					if (mountedRef.current) setTokenMessage(translate("token.clearFailed", { message: error instanceof Error ? error.message : String(error) }));
 				}).finally(() => {
@@ -975,8 +1105,12 @@ window.__ModuleLoader__.load({
 				setTokenBusy(true);
 				setSyncRunning(true);
 				setTokenMessage(translate("token.syncStarting"));
+				// 每轮同步一个序号 + 取消标记：旧轮的轮询响应不许改写新一轮的状态
+				// （取消后服务端会把该轮记为 aborted，旧轮询仍可能带着失败文案回来）。
+				const seq = ++syncSeqRef.current;
+				syncCancelledRef.current = false;
 				fetch("/api/usage-stats/platform/sync", { method: "POST" }).then((response) => response.json().catch(() => ({ ok: false, message: `HTTP ${response.status}` }))).then((payload) => {
-					if (!mountedRef.current) return;
+					if (!mountedRef.current || syncSeqRef.current !== seq) return;
 					if (payload?.ok !== true) {
 						setSyncRunning(false);
 						setTokenMessage(translate(payload?.error === "sync-unavailable" ? "token.syncUnavailable" : "token.syncFailed", { message: payload?.message ?? "" }));
@@ -985,7 +1119,7 @@ window.__ModuleLoader__.load({
 					setTokenMessage(translate("token.syncOpened"));
 					const startedAt = Date.now();
 					const timer = window.setInterval(() => {
-						if (!mountedRef.current) {
+						if (!mountedRef.current || syncSeqRef.current !== seq) {
 							window.clearInterval(timer);
 							return;
 						}
@@ -996,7 +1130,7 @@ window.__ModuleLoader__.load({
 							return;
 						}
 						fetch("/api/usage-stats/platform/sync", { headers: { accept: "application/json" } }).then((response) => response.json()).then((statusPayload) => {
-							if (!mountedRef.current || statusPayload?.ok !== true) return;
+							if (!mountedRef.current || syncSeqRef.current !== seq || statusPayload?.ok !== true) return;
 							if (statusPayload.running === true) return;
 							window.clearInterval(timer);
 							setSyncRunning(false);
@@ -1004,24 +1138,36 @@ window.__ModuleLoader__.load({
 								setTokenStatus({ configured: true, source: "stored" });
 								setTokenMessage(translate("token.syncCaptured"));
 								setTokenJustSaved(true);
-								// 同步更新显示：捕获成功后立即拉取最新平台用量。
+								// 同步更新显示：捕获成功后立即拉取最新平台用量。累计与日详情
+								// 也要重拉 —— 换了凭据后它们属于上一个账号。
 								loadPlatform(platformMonth, true);
+								loadPlatformTotal(true);
 								loadRecentPlatform(true);
-							} else {
+								if (selectedDay !== null && platformActive) loadDayDetail(selectedDay, true);
+							} else if (syncCancelledRef.current !== true && syncSeqRef.current === seq) {
+								// 用户主动停止时不覆盖「已停止同步」的提示。
 								setTokenMessage(translate("token.syncFailed", { message: statusPayload.last?.message ?? "" }));
 							}
 						}).catch(() => { /* keep polling */ });
 					}, 2000);
+					syncTimerRef.current = timer;
 				}).catch((error) => {
-					if (!mountedRef.current) return;
+					if (!mountedRef.current || syncSeqRef.current !== seq) return;
 					setSyncRunning(false);
 					setTokenMessage(translate("token.syncFailed", { message: error instanceof Error ? error.message : String(error) }));
 				}).finally(() => {
 					if (mountedRef.current) setTokenBusy(false);
 				});
-			}, [platformMonth, loadPlatform, loadRecentPlatform, translate]);
+			}, [platformMonth, selectedDay, platformActive, loadPlatform, loadPlatformTotal, loadRecentPlatform, loadDayDetail, translate]);
 
 			const stopSync = react.useCallback(() => {
+				// 让本轮轮询立即失效：取消后到达的响应不再改动消息与状态。
+				syncSeqRef.current += 1;
+				syncCancelledRef.current = true;
+				if (syncTimerRef.current !== null) {
+					window.clearInterval(syncTimerRef.current);
+					syncTimerRef.current = null;
+				}
 				setSyncRunning(false);
 				setTokenMessage(translate("token.syncStopped"));
 				fetch("/api/usage-stats/platform/sync", { method: "DELETE" }).catch(() => {});
@@ -1031,6 +1177,10 @@ window.__ModuleLoader__.load({
 				mountedRef.current = true;
 				return () => {
 					mountedRef.current = false;
+					if (syncTimerRef.current !== null) {
+						window.clearInterval(syncTimerRef.current);
+						syncTimerRef.current = null;
+					}
 				};
 			}, []);
 
@@ -1083,27 +1233,47 @@ window.__ModuleLoader__.load({
 				};
 			}, [open, loadAccount]);
 
-			// DeepSeek platform usage follows the viewed month; refresh every five
-			// minutes while the panel stays open (server caches per month). The
-			// recent-14-days list is windowed independently of the viewed month.
+			// 平台数据是「一组」：本月、累计、最近 14 天与选中日的日详情共享同一次
+			// 五分钟刷新。之前计时器只重拉月用量，面板一直开着时累计与最近 14 天永远
+			// 不更新（报告实测：推进五分钟后 /platform/total 新增 0 次请求）。
+			const platformTick = react.useCallback((force = false) => {
+				loadPlatform(platformMonth, force);
+				loadPlatformTotal(force);
+				loadRecentPlatform(force);
+				if (selectedDay !== null && platformActive) loadDayDetail(selectedDay, force);
+			}, [platformMonth, selectedDay, platformActive, loadPlatform, loadPlatformTotal, loadRecentPlatform, loadDayDetail]);
+
 			react.useEffect(() => {
 				if (!open) return;
-				loadPlatform(platformMonth);
-				loadPlatformTotal();
-				loadRecentPlatform();
-				const timer = window.setInterval(() => loadPlatform(platformMonth), 300000);
+				platformTick();
+				const timer = window.setInterval(() => platformTick(), 300000);
 				return () => {
 					window.clearInterval(timer);
 				};
-			}, [open, platformMonth, loadPlatform, loadRecentPlatform]);
+			}, [open, platformTick]);
+
+			// 折叠内容展开时补一次（服务端五分钟缓存，正常是内存命中）：展开看到的不该
+			// 是"上次打开面板时"的旧值。
+			react.useEffect(() => {
+				if (!open || !recentOpen) return;
+				loadPlatformTotal();
+				loadRecentPlatform();
+			}, [open, recentOpen, loadPlatformTotal, loadRecentPlatform]);
+
+			react.useEffect(() => {
+				if (!open || !(platformOpen || apiKeysOpen)) return;
+				loadPlatform(platformMonth);
+			}, [open, platformOpen, apiKeysOpen, platformMonth, loadPlatform]);
 
 			// 保存用量 Token 后，平台数据一到达就把“已保存”消息升级为消费金额，
-			// 让设置页与主面板的数据同步更新。
+			// 让设置页与主面板的数据同步更新。费用不可用时不能编造金额，只说已保存。
 			react.useEffect(() => {
-				if (tokenJustSaved && platform !== null) {
-					setTokenMessage(translate("token.savedCost", { cost: fmtCurrency(platform.monthCost, "CNY") }));
-					setTokenJustSaved(false);
-				}
+				if (!tokenJustSaved || platform === null) return;
+				const known = platform.costAvailable !== false;
+				setTokenMessage(known
+					? translate("token.savedCost", { cost: fmtCurrency(platform.monthCost, platform.currency ?? "CNY") })
+					: translate("token.savedNoCost"));
+				setTokenJustSaved(false);
 			}, [tokenJustSaved, platform, translate]);
 
 			const dayMap = react.useMemo(() => {
@@ -1116,7 +1286,6 @@ window.__ModuleLoader__.load({
 
 			// 热力图数据源：平台用量可用时显示平台获取的每日用量（映射为热力图
 			// 需要的日结构，可点选下钻），否则回退到本地会话用量。
-			const platformActive = platform !== null && Array.isArray(platform.days) && platform.days.length > 0;
 			const heatDayMap = react.useMemo(() => {
 				if (!platformActive) return dayMap;
 				const map = new Map();
@@ -1137,17 +1306,8 @@ window.__ModuleLoader__.load({
 					setDayDetailLoading(false);
 					return;
 				}
-				const seq = ++dayDetailSeqRef.current;
-				setDayDetailLoading(true);
-				fetchJson(`/api/usage-stats/platform/day?date=${selectedDay}`).then((payload) => {
-					if (!mountedRef.current || dayDetailSeqRef.current !== seq) return;
-					setDayDetail(payload?.ok === true ? payload : null);
-				}).catch(() => {
-					if (mountedRef.current && dayDetailSeqRef.current === seq) setDayDetail(null);
-				}).finally(() => {
-					if (mountedRef.current && dayDetailSeqRef.current === seq) setDayDetailLoading(false);
-				});
-			}, [selectedDay, platformActive]);
+				loadDayDetail(selectedDay);
+			}, [selectedDay, platformActive, loadDayDetail]);
 
 			const heat = react.useMemo(() => {
 				// platformMonth is `YYYY-MM` with a 1-based month; the builder wants 0-based.
@@ -1179,6 +1339,16 @@ window.__ModuleLoader__.load({
 			const bandDayTokens = todayKey().startsWith(platformMonth) ? (heatDayMap.get(todayKey())?.tokens ?? 0) : 0;
 			const bandMonthTokens = react.useMemo(() => tokensForMonth([...heatDayMap.values()], platformMonth), [heatDayMap, platformMonth]);
 			const bandTotalTokens = platformTotal !== null && typeof platformTotal.total === "number" ? platformTotal.total : (stats?.total ?? 0);
+			// 累计是有界窗口（最多回扫 24 个月）：服务端说 limited 时不能用"累计"这个词，
+			// 并把已扫描区间一并说明，数字与口径都站得住。
+			const totalLimited = platformTotal !== null && platformTotal.limited === true;
+			const totalTokensLabel = totalLimited ? translate("usage.totalTokensLimited") : void 0;
+			const scopeNote = totalLimited && platformTotal?.range?.from && platformTotal?.range?.to
+				? translate("usage.scope", { from: platformTotal.range.from, to: platformTotal.range.to })
+				: null;
+			// 费用响应结构无效（HTTP 200 但 biz_data 缺失）时服务端返回 costAvailable:false：
+			// 此时所有金额位显示「—」，绝不显示 ¥0.00 —— 那等于宣称这些用量免费。
+			const costKnown = platform === null || platform.costAvailable !== false;
 
 			const recent = react.useMemo(() => {
 				// Last 14 CALENDAR days (not "last 14 recorded days"): days without
@@ -1195,46 +1365,107 @@ window.__ModuleLoader__.load({
 			const badgeCount = stats !== null || platformActive ? fmt(bandDayTokens) : null;
 
 			// 手动刷新：按钮立刻进入「刷新中」，这批请求全部落地（无论成败）后复原。
+			// 日详情也在这一批里 —— 否则顶部总量与按 API Key 会显示两个批次的数据。
 			const refreshAll = () => {
 				if (refreshing) return;
 				setRefreshing(true);
-				Promise.allSettled([
+				const requests = [
 					loadUsage(true),
 					loadAccount("deepseek-official", true),
 					loadPlatform(platformMonth, true),
 					loadPlatformTotal(true),
 					loadRecentPlatform(true)
-				]).finally(() => {
+				];
+				if (selectedDay !== null && platformActive) requests.push(loadDayDetail(selectedDay, true));
+				Promise.allSettled(requests).finally(() => {
 					if (mountedRef.current) setRefreshing(false);
 				});
 			};
 
+			/**
+			 * 切月：鼠标按钮与键盘共用这一条边界。"下个月"按钮本来就 disabled，但
+			 * PageDown 直接 setPlatformMonth 绕过了它（报告实测能进 2026-11）。
+			 * 同时记下待聚焦日期交给热力格 —— 旧格子卸载后焦点会掉到 BODY。
+			 */
+			const stepMonth = react.useCallback((delta, fromKey) => {
+				const next = shiftMonth(platformMonth, delta);
+				if (next > currentMonthKey()) return;
+				monthFocusRef.current = { key: dayInMonth(fromKey ?? selectedDay ?? todayKey(), next), nonce: monthFocusRef.current.nonce + 1 };
+				setPlatformMonth(next);
+			}, [platformMonth, selectedDay]);
+
 			const updatedLabel = refreshedAt === null ? "" : translate("panel.updatedAt", {
 				time: new Date(refreshedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
 			});
+			// 首屏（还没有任何数据）与 stale 期间都要说清楚「正在汇总」，骨架不该像坏掉一样杵着。
+			const usagePending = usage === null && usageError === null;
+			const headerHint = refreshing
+				? translate("action.refreshing")
+				: (usagePending || usageStale) ? translate("usage.aggregating") : updatedLabel;
 
 			// 面板自带的 tooltip：坐标相对最外层容器（.usg_layer），这样面板关闭时
-			// 也能给徽标显示；横向按容器宽度夹取，避免贴边溢出。
+			// 也能给徽标显示。横向夹取必须按「元素真正所在的那个容器」算：热力格在
+			// 440px 的面板里，而 layer 只是侧栏底部那一条（~200px）—— 只按 layer 宽度
+			// 夹取会把上下限压成同一个数，小窗就被钉死在一个点上（用户实测：不管悬停
+			// 哪一格，横向恒为 132px）。面板关着时退回 layer 自己的范围。
+			const tipRef = react.useRef(null);
+			const tipHalfRef = react.useRef(132);
 			const showTip = react.useCallback((text, element) => {
 				const layer = layerRef.current;
 				if (layer === null || element === null || element === void 0) return;
-				const box = layer.getBoundingClientRect();
+				// 面板开着就挂到面板里：面板是 fixed、压在侧栏之上，不会被侧栏的
+				// overflow 裁掉；面板关着才退回 layer（徽标那条路径）。
+				const panel = panelRef.current;
+				const container = panel ?? layer;
+				const box = container.getBoundingClientRect();
 				const rect = element.getBoundingClientRect();
-				const half = 132;
-				const width = Math.max(box.width, 264);
+				const half = tipHalfRef.current;
 				const center = rect.left - box.left + rect.width / 2;
+				const min = 0;
+				// 挂 layer 时容器只是侧栏底部那条窄条（导轨模式实测 36px），小窗本来就要
+				// 横向探出侧栏画在页面之上，所以给一个 264px 的下限当作可用宽度。
+				const max = panel === null ? Math.max(box.width, 264) : box.width;
 				setTip({
 					text,
-					x: Math.min(Math.max(center, half), Math.max(half, width - half)),
-					y: rect.top - box.top - 7
+					mount: panel === null ? "layer" : "panel",
+					center,
+					min,
+					max,
+					x: fitTipX(center, min, max, half),
+					y: rect.top - box.top - 7,
+					below: rect.bottom - box.top + 7
 				});
 			}, []);
+			react.useLayoutEffect(() => {
+				const node = tipRef.current;
+				if (tip === null || node === null) return;
+				const half = node.offsetWidth / 2;
+				tipHalfRef.current = half;
+				const x = fitTipX(tip.center, tip.min, tip.max, half);
+				if (Math.abs(x - tip.x) > 0.5) node.style.left = `${x}px`;
+				// 上方放不下就翻到下方。只在挂面板时需要：面板 overflow:hidden，贴顶那一行
+				// 会被切；挂 layer（徽标）时 y 是负数才是正常的（画在侧栏底栏上方）。
+				const height = node.offsetHeight;
+				const flip = tip.mount === "panel" && tip.y - height < 4;
+				node.dataset.side = flip ? "below" : "above";
+				node.style.top = `${flip ? tip.below : tip.y}px`;
+			});
 			const hideTip = react.useCallback(() => setTip(null), []);
 			const hoverTip = react.useMemo(() => ({ show: showTip, hide: hideTip }), [showTip, hideTip]);
+
 
 			// 视图月不是当月时，"本月/今日 Tokens" 这两个标签会与数字不符（数字跟着视图月走）。
 			const viewingCurrentMonth = platformMonth === currentMonthKey();
 			const monthBandLabel = translate("usage.monthTokensFor", { month: monthLabelOf(platformMonth, translate) });
+
+			// 小窗节点：面板开着时挂进面板（不被侧栏 overflow 裁切），关着时挂 layer（给徽标）。
+			const tipNode = tip === null ? null : react_jsx_runtime.jsx("div", {
+				className: S.tip,
+				ref: tipRef,
+				role: "tooltip",
+				style: { left: tip.x, top: tip.y },
+				children: tip.text
+			});
 
 			return react_jsx_runtime.jsxs("div", {
 				className: wide ? S.layer : `${S.layer} ${S.rail}`,
@@ -1256,14 +1487,14 @@ window.__ModuleLoader__.load({
 									react_jsx_runtime.jsxs("div", {
 										className: S.headerLeft,
 										children: [
-											react_jsx_runtime.jsx(primitives.IconDataOutline16, { size: 16 }),
+											ICONS.data && react_jsx_runtime.jsx(ICONS.data, { size: 16 }),
 											react_jsx_runtime.jsx("span", { className: S.title, children: translate("panel.title") }),
-											(refreshing || updatedLabel !== "") && react_jsx_runtime.jsx("span", {
+											(refreshing || usagePending || usageStale || updatedLabel !== "") && react_jsx_runtime.jsx("span", {
 												className: S.headerHint,
 												// 读屏用户按了刷新也能听到结果（刷新中… → 更新于 hh:mm）。
 												role: "status",
 												"aria-live": "polite",
-												children: refreshing ? translate("action.refreshing") : updatedLabel
+												children: headerHint
 											})
 										]
 									}),
@@ -1278,7 +1509,7 @@ window.__ModuleLoader__.load({
 												"aria-label": translate("action.pin"),
 												"aria-pressed": pinned,
 												onClick: togglePin,
-												children: react_jsx_runtime.jsx(primitives.IconPinOutline14, { size: 14 })
+												children: ICONS.pin && react_jsx_runtime.jsx(ICONS.pin, { size: 14 })
 											}),
 											react_jsx_runtime.jsx("button", {
 												type: "button",
@@ -1287,7 +1518,7 @@ window.__ModuleLoader__.load({
 												disabled: refreshing,
 												"data-busy": refreshing || void 0,
 												onClick: refreshAll,
-												children: react_jsx_runtime.jsx(primitives.IconRefreshOutline14, { size: 14 })
+												children: ICONS.refresh && react_jsx_runtime.jsx(ICONS.refresh, { size: 14 })
 											}),
 											react_jsx_runtime.jsx("button", {
 												type: "button",
@@ -1299,21 +1530,21 @@ window.__ModuleLoader__.load({
 													setShowSettings(true);
 													loadTokenStatus();
 												},
-												children: react_jsx_runtime.jsx(primitives.IconSettingsOutline14, { size: 14 })
+												children: ICONS.settings && react_jsx_runtime.jsx(ICONS.settings, { size: 14 })
 											}),
 											react_jsx_runtime.jsx("button", {
 												type: "button",
 												className: S.iconButton,
 												"aria-label": translate("action.minimize"),
 												onClick: () => { tauriInvoke("plugin:window|minimize"); },
-												children: react_jsx_runtime.jsx(primitives.IconMinimizeOutline14, { size: 14 })
+												children: ICONS.minimize && react_jsx_runtime.jsx(ICONS.minimize, { size: 14 })
 											}),
 											react_jsx_runtime.jsx("button", {
 												type: "button",
 												className: S.iconButton,
 												"aria-label": translate("action.maximize"),
 												onClick: () => { tauriInvoke("plugin:window|toggle_maximize"); },
-												children: react_jsx_runtime.jsx(primitives.IconMaximizeOutline14, { size: 14 })
+												children: ICONS.maximize && react_jsx_runtime.jsx(ICONS.maximize, { size: 14 })
 											}),
 											react_jsx_runtime.jsx("button", {
 												type: "button",
@@ -1321,7 +1552,7 @@ window.__ModuleLoader__.load({
 												"aria-label": translate("action.close"),
 												"data-kind": "close",
 												onClick: dismissPanel,
-												children: react_jsx_runtime.jsx(primitives.IconCloseOutline16, { size: 14 })
+												children: ICONS.close && react_jsx_runtime.jsx(ICONS.close, { size: 14 })
 											})
 										]
 									})
@@ -1334,6 +1565,7 @@ window.__ModuleLoader__.load({
 								tabIndex: -1,
 								"data-view": view,
 								"data-dir": viewDir || void 0,
+								// 滚动时收起残留的小窗（不做滚动遮罩：用户明确不要降低清晰度的效果）。
 								onScroll: hideTip,
 								children: [
 									showSettings ? react_jsx_runtime.jsx(TokenSettingsView, {
@@ -1355,6 +1587,7 @@ window.__ModuleLoader__.load({
 										dayDetail,
 										detailLoading: dayDetailLoading,
 										currency: platform?.currency ?? "CNY",
+										costKnown,
 										translate,
 										onBack: () => setSelectedDay(null)
 									}) : react_jsx_runtime.jsxs(react_jsx_runtime.Fragment, {
@@ -1385,10 +1618,16 @@ window.__ModuleLoader__.load({
 														// 数字跟着视图月走，标签也要跟着：翻到 7 月时"本月"就不再成立。
 														monthBandLabel: viewingCurrentMonth ? void 0 : monthBandLabel,
 														localTotalTokens: bandTotalTokens,
+														// 累计是有界窗口时连标签一起换掉，并说明扫描区间。
+														totalTokensLabel,
+														scopeNote,
+														costKnown,
 														translate
 													})
 												]
 											}),
+											// 会话列表读取失败：数字是"上次成功 + 保留缓存"，必须说明可能不完整。
+											usagePartial ? react_jsx_runtime.jsx("p", { className: S.note, children: translate("usage.partial") }) : null,
 											stats === null && usageError === null ? react_jsx_runtime.jsx(UsageSkeleton, {}) : null,
 											usageError !== null ? react_jsx_runtime.jsxs("div", {
 												className: S.error,
@@ -1416,8 +1655,8 @@ window.__ModuleLoader__.load({
 																		type: "button",
 																		className: S.navButton,
 																		"aria-label": translate("action.prevMonth"),
-																		onClick: () => setPlatformMonth(shiftMonth(platformMonth, -1)),
-																		children: react_jsx_runtime.jsx(primitives.IconChevronLeftOutline14, { size: 12 })
+																		onClick: () => stepMonth(-1),
+																		children: ICONS.chevronLeft && react_jsx_runtime.jsx(ICONS.chevronLeft, { size: 12 })
 																	}),
 																	react_jsx_runtime.jsx("span", { className: S.monthTitle, children: monthLabelOf(platformMonth, translate) }),
 																	react_jsx_runtime.jsx("button", {
@@ -1425,8 +1664,8 @@ window.__ModuleLoader__.load({
 																		className: S.navButton,
 																		"aria-label": translate("action.nextMonth"),
 																		disabled: platformMonth >= currentMonthKey(),
-																		onClick: () => setPlatformMonth(shiftMonth(platformMonth, 1)),
-																		children: react_jsx_runtime.jsx(primitives.IconChevronRightOutline14, { size: 12 })
+																		onClick: () => stepMonth(1),
+																		children: ICONS.chevronRight && react_jsx_runtime.jsx(ICONS.chevronRight, { size: 12 })
 																	}),
 																	platformMonth !== currentMonthKey() && react_jsx_runtime.jsx("button", {
 																		type: "button",
@@ -1446,7 +1685,9 @@ window.__ModuleLoader__.load({
 														today: todayKey(),
 														currency: platform?.currency ?? "CNY",
 														hoverTip,
-														onMonthStep: (delta) => setPlatformMonth(shiftMonth(platformMonth, delta))
+														costKnown,
+														focusRequest: monthFocusRef.current,
+														onMonthStep: (delta, key) => stepMonth(delta, key)
 													})
 												]
 											}),
@@ -1465,7 +1706,7 @@ window.__ModuleLoader__.load({
 																className: S.disclosureChevron,
 																"data-open": recentOpen || void 0,
 																"aria-hidden": true,
-																children: [react_jsx_runtime.jsx(primitives.IconChevronRightOutline14, { size: 12 })]
+																children: [ICONS.chevronRight && react_jsx_runtime.jsx(ICONS.chevronRight, { size: 12 })]
 															}),
 															react_jsx_runtime.jsx("h3", { className: S.sectionTitle, children: translate("usage.recent") }),
 															react_jsx_runtime.jsx("span", { className: S.disclosureCount, children: fmt(recent.length) })
@@ -1507,7 +1748,7 @@ window.__ModuleLoader__.load({
 																className: S.disclosureChevron,
 																"data-open": platformOpen || void 0,
 																"aria-hidden": true,
-																children: [react_jsx_runtime.jsx(primitives.IconChevronRightOutline14, { size: 12 })]
+																children: [ICONS.chevronRight && react_jsx_runtime.jsx(ICONS.chevronRight, { size: 12 })]
 															}),
 															react_jsx_runtime.jsx("h3", { className: S.sectionTitle, children: translate("platform.modelsTitle") }),
 															(platform?.models?.length ?? 0) > 0 && react_jsx_runtime.jsx("span", { className: S.disclosureCount, children: fmt(platform.models.length) })
@@ -1526,7 +1767,8 @@ window.__ModuleLoader__.load({
 															loadTokenStatus();
 														},
 														translate,
-														showStats: false
+														showStats: false,
+														costKnown
 													})
 												]
 											}),
@@ -1535,13 +1777,15 @@ window.__ModuleLoader__.load({
 												currency: platform?.currency,
 												open: apiKeysOpen,
 												onToggle: () => setApiKeysOpen((value) => !value),
-												translate
+												translate,
+												costKnown
 											}),
 											updatedLabel !== "" && react_jsx_runtime.jsx("p", { className: S.footerNote, children: updatedLabel })
 										]
 									}))
 								]
-							})
+							}),
+						tip !== null && tip.mount === "panel" && tipNode
 						]
 					}),
 					react_jsx_runtime.jsx("div", {
@@ -1560,7 +1804,7 @@ window.__ModuleLoader__.load({
 							onBlur: wide ? void 0 : hideTip,
 							onClick: () => (open ? closePanel() : openPanel()),
 							children: [
-								react_jsx_runtime.jsx(primitives.IconDataOutline16, { size: wide ? 14 : 18 }),
+								ICONS.data && react_jsx_runtime.jsx(ICONS.data, { size: wide ? 14 : 18 }),
 								wide && react_jsx_runtime.jsxs(react_jsx_runtime.Fragment, {
 									children: [
 										react_jsx_runtime.jsx("span", { className: S.badgeLabel, children: translate("panel.badge") }),
@@ -1573,6 +1817,7 @@ window.__ModuleLoader__.load({
 					// tooltip 挂在最外层：面板关闭时也要能给徽标显示（坐标相对 .usg_layer）。
 					tip !== null && react_jsx_runtime.jsx("div", {
 						className: S.tip,
+						ref: tipRef,
 						role: "tooltip",
 						style: { left: tip.x, top: tip.y },
 						children: tip.text
@@ -1702,7 +1947,7 @@ window.__ModuleLoader__.load({
 		 * carry `requestCount` and `cost`, and the `dayDetail` payload adds the
 		 * hourly distribution + per-API-Key rows for the selected day.
 		 */
-		function DayDetail({ day, translate, onBack, dayDetail = null, currency = "CNY", detailLoading = false }) {
+		function DayDetail({ day, translate, onBack, dayDetail = null, currency = "CNY", detailLoading = false, costKnown = true }) {
 			const models = Array.isArray(day.models) ? day.models : [];
 			const totalTokens = day.tokens ?? 0;
 			const hasRequests = (day.requestCount ?? 0) > 0;
@@ -1717,7 +1962,10 @@ window.__ModuleLoader__.load({
 			const heroValue = fmt(totalTokens);
 			const sideItems = [
 				...(hasRequests ? [{ value: fmt(day.requestCount), label: translate("platform.requests") }] : []),
-				...(hasCost ? [{ value: fmtCurrency(day.cost, currency), label: translate("usage.cost") }] : [])
+				// 费用不可用时给「—」而不是省略：省略会让人以为这一天没有花钱。
+				...(costKnown
+					? (hasCost ? [{ value: fmtCurrency(day.cost, currency), label: translate("usage.cost") }] : [])
+					: [{ value: "—", label: translate("usage.cost") }])
 			];
 			// 环形分段：极小占比（如 0.1%）也保证最小可视角度，三类颜色都能看清；
 			// 差额从最大段扣除，图例仍显示真实百分比。SVG 圆弧渲染（矢量抗锯齿优于 conic-gradient 硬切）。
@@ -1751,7 +1999,7 @@ window.__ModuleLoader__.load({
 								className: S.back,
 								"aria-label": translate("usage.back"),
 								onClick: onBack,
-								children: react_jsx_runtime.jsx(primitives.IconChevronLeftOutline14, { size: 14 })
+								children: ICONS.chevronLeft && react_jsx_runtime.jsx(ICONS.chevronLeft, { size: 14 })
 							}),
 							react_jsx_runtime.jsx("span", { className: S.detailDate, children: dayLabel(day.date, translate) })
 						]
@@ -1798,7 +2046,7 @@ window.__ModuleLoader__.load({
 							react_jsx_runtime.jsxs("div", {
 								className: S.dayRing,
 								role: "img",
-								"aria-label": translate("usage.ringLabel", { total: heroValue }),
+								"aria-label": translate("usage.ringLabel", { total: heroValue, hit: fmtHit(day.cacheHitRate) }),
 								children: [
 									react_jsx_runtime.jsxs("svg", {
 										className: S.dayRingSvg,
@@ -1822,7 +2070,8 @@ window.__ModuleLoader__.load({
 										className: S.dayRingCenter,
 										children: [
 											react_jsx_runtime.jsx("b", { children: fmtHit(day.cacheHitRate) }),
-											react_jsx_runtime.jsx("span", { children: translate("usage.hitRate") })
+											react_jsx_runtime.jsx("span", { children: translate("usage.hitRate") }),
+											react_jsx_runtime.jsx("span", { className: S.dayRingNote, children: translate("usage.hitRateNote") })
 										]
 									})
 								]
@@ -1882,7 +2131,7 @@ window.__ModuleLoader__.load({
 								children: [
 									react_jsx_runtime.jsx("span", { className: S.dayKeyName, title: key.trackingId, children: key.name }),
 									react_jsx_runtime.jsx("span", { className: S.dayKeyTokens, children: fmt(key.totalTokens ?? 0) }),
-									react_jsx_runtime.jsx("span", { className: S.dayKeyMeta, children: `${translate("platform.requests")} ${fmt(key.requestCount ?? 0)} · ${fmtCurrency(key.cost ?? 0, currency)}` })
+									react_jsx_runtime.jsx("span", { className: S.dayKeyMeta, children: `${translate("platform.requests")} ${fmt(key.requestCount ?? 0)} · ${costKnown ? fmtCurrency(key.cost ?? 0, currency) : "—"}` })
 								]
 							}, key.trackingId))
 						]
@@ -1901,7 +2150,7 @@ window.__ModuleLoader__.load({
 							// 一条合并条：宽度=模型占当日份额，内部分段=模型自身构成。
 							const metaParts = [`${translate("platform.hit")} ${fmt(model.cacheReadTokens ?? 0)}`, `${translate("platform.miss")} ${fmt(model.inputTokens ?? 0)}`, `${translate("platform.output")} ${fmt(model.outputTokens ?? 0)}`];
 							if (hasRequests) metaParts.push(`${translate("platform.requests")} ${fmt(model.requestCount ?? 0)}`);
-							if (hasCost && (model.cost ?? 0) > 0) metaParts.push(`${translate("usage.cost")} ${fmtCurrency(model.cost, currency)}`);
+							if (costKnown && hasCost && (model.cost ?? 0) > 0) metaParts.push(`${translate("usage.cost")} ${fmtCurrency(model.cost, currency)}`);
 							return react_jsx_runtime.jsxs("div", {
 								className: S.modelRow,
 								children: [
@@ -1947,7 +2196,7 @@ window.__ModuleLoader__.load({
 		 * weeks as rows (Mon-first), padded with placeholders. Cells are buttons
 		 * that select a day.
 		 */
-		function MonthHeatmap({ heat, translate, selectedKey, onSelect, today, currency = "CNY", hoverTip, onMonthStep }) {
+		function MonthHeatmap({ heat, translate, selectedKey, onSelect, today, currency = "CNY", hoverTip, onMonthStep, focusRequest = null, costKnown = true }) {
 			const select = typeof onSelect === "function" ? onSelect : () => {};
 			// Optional in-panel tooltip (`{ show(text, element), hide() }`): the built-in
 			// `title` attribute waits about a second and is styled by the OS, so the panel
@@ -1981,6 +2230,16 @@ window.__ModuleLoader__.load({
 				const node = gridRef.current === null ? null : gridRef.current.querySelector(`[data-key="${key}"]`);
 				if (node !== null && node !== void 0) node.focus();
 			};
+			// 键盘切月后把焦点送回日历：请求带序号，只在"新的一次切月"时执行；
+			// 目标日不在新月时取第一天。父组件已按"同一天号、超长则夹取"算好 key。
+			const pendingFocusRef = react.useRef(0);
+			react.useEffect(() => {
+				if (focusRequest === null || focusRequest === void 0 || focusRequest.nonce === pendingFocusRef.current) return;
+				pendingFocusRef.current = focusRequest.nonce;
+				const target = dayKeys.includes(focusRequest.key) ? focusRequest.key : dayKeys[0];
+				if (target === void 0 || target === null) return;
+				focusCell(target);
+			}, [focusRequest, dayKeys]);
 			const stepFocus = (key, delta) => {
 				const index = dayKeys.indexOf(key);
 				if (index < 0) return;
@@ -2003,7 +2262,9 @@ window.__ModuleLoader__.load({
 				}
 				if ((event.key === "PageUp" || event.key === "PageDown") && typeof onMonthStep === "function") {
 					event.preventDefault();
-					onMonthStep(event.key === "PageUp" ? -1 : 1);
+					// 把当前格子一并交出去：切月后它会被卸载，父组件要用它算出新月里
+					// 该聚焦哪一天（不然焦点掉到 BODY）。
+					onMonthStep(event.key === "PageUp" ? -1 : 1, key);
 				}
 			};
 			const weekdayLabels = [
@@ -2032,7 +2293,7 @@ window.__ModuleLoader__.load({
 									if (cell === null) return react_jsx_runtime.jsx("span", { className: S.emptyCell, "aria-hidden": true }, `${weekIndex}-${dayIndex}`);
 									const style = cellColor(cell.tokens, heat.max);
 									const hit = cell.hitRate === null || cell.hitRate === void 0 ? "" : ` · ${translate("usage.hitRate")} ${cell.hitRate}%`;
-									const cost = (cell.cost ?? 0) > 0 ? ` · ${fmtCurrency(cell.cost, currency)}` : "";
+									const cost = costKnown && (cell.cost ?? 0) > 0 ? ` · ${fmtCurrency(cell.cost, currency)}` : "";
 									const isToday = cell.key === currentToday;
 									const tipText = `${cell.key} · ${fmt(cell.tokens)} tokens${hit}${cost}`;
 									return react_jsx_runtime.jsx("button", {
@@ -2225,7 +2486,7 @@ window.__ModuleLoader__.load({
 		 * usage token comes from `localStorage.userToken` on platform.deepseek.com
 		 * — a session credential, not the API key.
 		 */
-		function PlatformUsageBody({ platform, loading, error, month, onMonthChange, onRetry, onConfigure, translate, embedded, showStats = true }) {
+		function PlatformUsageBody({ platform, loading, error, month, onMonthChange, onRetry, onConfigure, translate, embedded, showStats = true, costKnown = true }) {
 			const idle = platform === null && !loading && error === null;
 			const models = Array.isArray(platform?.models) ? platform.models : [];
 			const days = Array.isArray(platform?.days) ? platform.days : [];
@@ -2239,8 +2500,8 @@ window.__ModuleLoader__.load({
 					showStats && react_jsx_runtime.jsxs("div", {
 						className: S.statsRow,
 						children: [
-							react_jsx_runtime.jsxs("div", { className: S.stat, "data-kind": "cost", children: [react_jsx_runtime.jsx("span", { className: S.statValue, children: fmtCurrency(platform?.monthCost, "CNY") }), react_jsx_runtime.jsx("span", { className: S.statLabel, children: translate("platform.monthCost") })] }),
-							react_jsx_runtime.jsxs("div", { className: S.stat, "data-kind": "cost", children: [react_jsx_runtime.jsx("span", { className: S.statValue, children: fmtCurrency(today?.totalCost ?? 0, "CNY") }), react_jsx_runtime.jsx("span", { className: S.statLabel, children: translate("platform.todayCost") })] }),
+							react_jsx_runtime.jsxs("div", { className: S.stat, "data-kind": "cost", children: [react_jsx_runtime.jsx("span", { className: S.statValue, children: costKnown ? fmtCurrency(platform?.monthCost, platform?.currency ?? "CNY") : "—" }), react_jsx_runtime.jsx("span", { className: S.statLabel, children: translate("platform.monthCost") })] }),
+							react_jsx_runtime.jsxs("div", { className: S.stat, "data-kind": "cost", children: [react_jsx_runtime.jsx("span", { className: S.statValue, children: costKnown ? fmtCurrency(today?.totalCost ?? 0, platform?.currency ?? "CNY") : "—" }), react_jsx_runtime.jsx("span", { className: S.statLabel, children: translate("platform.todayCost") })] }),
 							react_jsx_runtime.jsxs("div", { className: S.stat, "data-kind": "request", children: [react_jsx_runtime.jsx("span", { className: S.statValue, children: fmt(totals.requests) }), react_jsx_runtime.jsx("span", { className: S.statLabel, children: translate("platform.requests") })] })
 						]
 					}),
@@ -2248,7 +2509,7 @@ window.__ModuleLoader__.load({
 						: react_jsx_runtime.jsx("div", {
 							className: S.days,
 							children: models.map((model) => {
-								const ratio = (model.cost ?? 0) > 0 ? `${fmt(Math.round((model.totalTokens ?? 0) / model.cost))} T/¥` : "—";
+								const ratio = costKnown && (model.cost ?? 0) > 0 ? `${fmt(Math.round((model.totalTokens ?? 0) / model.cost))} T/¥` : "—";
 								const hitSide = (model.cacheHitTokens ?? 0) + (model.cacheMissTokens ?? 0);
 								const hitRate = hitSide > 0 ? `${Math.round(((model.cacheHitTokens ?? 0) / hitSide) * 100)}%` : "—";
 								return react_jsx_runtime.jsxs("div", {
@@ -2258,7 +2519,7 @@ window.__ModuleLoader__.load({
 											className: S.platformModelHead,
 											children: [
 												react_jsx_runtime.jsx("span", { className: S.platformModelName, title: model.key, children: model.name }),
-												react_jsx_runtime.jsx("span", { className: S.platformModelCost, children: fmtCurrency(model.cost, "CNY") })
+												react_jsx_runtime.jsx("span", { className: S.platformModelCost, children: costKnown ? fmtCurrency(model.cost, platform?.currency ?? "CNY") : "—" })
 											]
 										}),
 										react_jsx_runtime.jsx("div", {
@@ -2268,7 +2529,8 @@ window.__ModuleLoader__.load({
 									]
 								}, model.key);
 							})
-						})
+						}),
+					costKnown ? null : react_jsx_runtime.jsx("p", { className: S.note, children: translate("platform.costUnavailable") })
 				]
 			});
 			return react_jsx_runtime.jsxs(react_jsx_runtime.Fragment, {
@@ -2321,7 +2583,7 @@ window.__ModuleLoader__.load({
 		 * usage live in ONE card, separated by a hairline divider — one module,
 		 * one selectable provider, no duplicated module title.
 		 */
-		function DeepSeekAccountUsageCard({ provider, account, accountLoading, accountError, platform, platformLoading, platformError, month, onMonthChange, onRetry, onRetryPlatform, onConfigure, translate, localDayTokens = 0, localMonthTokens = 0, localTotalTokens = 0, monthBandLabel }) {
+		function DeepSeekAccountUsageCard({ provider, account, accountLoading, accountError, platform, platformLoading, platformError, month, onMonthChange, onRetry, onRetryPlatform, onConfigure, translate, localDayTokens = 0, localMonthTokens = 0, localTotalTokens = 0, monthBandLabel, totalTokensLabel, scopeNote = null, costKnown = true }) {
 			const mode = account?.mode ?? provider.accountMode ?? "balance";
 			const status = accountLoading && account === null ? "loading" : account?.status ?? "unavailable";
 			const statusText = status === "loading" ? translate("account.status.loading")
@@ -2364,19 +2626,23 @@ window.__ModuleLoader__.load({
 							react_jsx_runtime.jsxs("div", {
 								className: `${S.statsRow} ${S.bandCompact}`,
 								children: [
-									react_jsx_runtime.jsxs("div", { className: S.stat, "data-kind": "token", children: [react_jsx_runtime.jsx("span", { className: S.statValue, children: fmt(localTotalTokens) }), react_jsx_runtime.jsx("span", { className: S.statLabel, children: translate("usage.totalTokens") })] }),
+									react_jsx_runtime.jsxs("div", { className: S.stat, "data-kind": "token", children: [react_jsx_runtime.jsx("span", { className: S.statValue, children: fmt(localTotalTokens) }), react_jsx_runtime.jsx("span", { className: S.statLabel, children: totalTokensLabel ?? translate("usage.totalTokens") })] }),
 									react_jsx_runtime.jsxs("div", { className: S.stat, "data-kind": "request", children: [react_jsx_runtime.jsx("span", { className: S.statValue, children: fmt(requests) }), react_jsx_runtime.jsx("span", { className: S.statLabel, children: translate("platform.monthRequests") })] }),
-									react_jsx_runtime.jsxs("div", { className: S.stat, "data-kind": "cost", children: [react_jsx_runtime.jsx("span", { className: S.statValue, children: fmtCurrency(platform?.monthCost, platform?.currency ?? "CNY") }), react_jsx_runtime.jsx("span", { className: S.statLabel, children: translate("platform.monthCost") })] })
+									react_jsx_runtime.jsxs("div", { className: S.stat, "data-kind": "cost", children: [react_jsx_runtime.jsx("span", { className: S.statValue, children: costKnown ? fmtCurrency(platform?.monthCost, platform?.currency ?? "CNY") : "—" }), react_jsx_runtime.jsx("span", { className: S.statLabel, children: translate("platform.monthCost") })] })
 								]
 							}),
 							react_jsx_runtime.jsxs("div", {
 								className: `${S.statsRow} ${S.bandCompact}`,
 								children: [
 									react_jsx_runtime.jsxs("div", { className: S.stat, "data-kind": "token", children: [react_jsx_runtime.jsx("span", { className: S.statValue, children: fmt(localMonthTokens) }), react_jsx_runtime.jsx("span", { className: S.statLabel, children: monthBandLabel ?? translate("usage.monthTokens") })] }),
-									react_jsx_runtime.jsxs("div", { className: S.stat, "data-kind": "cost", children: [react_jsx_runtime.jsx("span", { className: S.statValue, children: fmtCurrency(today?.totalCost ?? 0, platform?.currency ?? "CNY") }), react_jsx_runtime.jsx("span", { className: S.statLabel, children: translate("platform.todayCost") })] }),
+									react_jsx_runtime.jsxs("div", { className: S.stat, "data-kind": "cost", children: [react_jsx_runtime.jsx("span", { className: S.statValue, children: costKnown ? fmtCurrency(today?.totalCost ?? 0, platform?.currency ?? "CNY") : "—" }), react_jsx_runtime.jsx("span", { className: S.statLabel, children: translate("platform.todayCost") })] }),
 									react_jsx_runtime.jsxs("div", { className: S.stat, "data-kind": "token", children: [react_jsx_runtime.jsx("span", { className: S.statValue, children: localDayTokens === null ? "—" : fmt(localDayTokens) }), react_jsx_runtime.jsx("span", { className: S.statLabel, children: translate("usage.todayTokens") })] })
 								]
-							})
+							}),
+							// 费用缺失与统计范围都写清楚：前者不能静默显示成 ¥0.00（等于宣称免费），
+							// 后者让「近 24 个月」这个标签有据可查。
+							costKnown ? null : react_jsx_runtime.jsx("p", { className: S.note, children: translate("platform.costUnavailable") }),
+							scopeNote === null ? null : react_jsx_runtime.jsx("p", { className: S.note, children: scopeNote })
 						]
 					})
 				]
@@ -2389,7 +2655,7 @@ window.__ModuleLoader__.load({
 		 * per-Key dimension; the block hides itself when the payload has none
 		 * (legacy fallback) or when no key has usage.
 		 */
-		function ApiKeysSection({ apiKeys, currency, open, onToggle, translate }) {
+		function ApiKeysSection({ apiKeys, currency, open, onToggle, translate, costKnown = true }) {
 			const list = Array.isArray(apiKeys) ? apiKeys : [];
 			if (list.length === 0) return null;
 			return react_jsx_runtime.jsxs("section", {
@@ -2405,7 +2671,7 @@ window.__ModuleLoader__.load({
 								className: S.disclosureChevron,
 								"data-open": open || void 0,
 								"aria-hidden": true,
-								children: [react_jsx_runtime.jsx(primitives.IconChevronRightOutline14, { size: 12 })]
+								children: [ICONS.chevronRight && react_jsx_runtime.jsx(ICONS.chevronRight, { size: 12 })]
 							}),
 							react_jsx_runtime.jsx("h3", { className: S.sectionTitle, children: translate("platform.apiKeysTitle") }),
 							react_jsx_runtime.jsx("span", { className: S.disclosureCount, children: fmt(list.length) })
@@ -2423,7 +2689,7 @@ window.__ModuleLoader__.load({
 										className: S.platformModelHead,
 										children: [
 											react_jsx_runtime.jsx("span", { className: S.platformModelName, title: key.trackingId, children: key.name }),
-											react_jsx_runtime.jsx("span", { className: S.platformModelCost, children: fmtCurrency(key.cost, currency ?? "CNY") })
+											react_jsx_runtime.jsx("span", { className: S.platformModelCost, children: costKnown ? fmtCurrency(key.cost, currency ?? "CNY") : "—" })
 										]
 									}),
 									react_jsx_runtime.jsx("div", {
@@ -2459,7 +2725,7 @@ window.__ModuleLoader__.load({
 								className: S.back,
 								"aria-label": translate("settings.back"),
 								onClick: onBack,
-								children: react_jsx_runtime.jsx(primitives.IconChevronLeftOutline14, { size: 14 })
+								children: ICONS.chevronLeft && react_jsx_runtime.jsx(ICONS.chevronLeft, { size: 14 })
 							}),
 							react_jsx_runtime.jsx("span", { className: S.detailDate, children: translate("settings.title") })
 						]
@@ -2569,6 +2835,9 @@ window.__ModuleLoader__.load({
 			"usage.monthTokens": "本月 Tokens",
 			"usage.monthTokensFor": "{month} Tokens",
 			"usage.totalTokens": "累计 Tokens",
+			"usage.totalTokensLimited": "近 24 个月",
+			"usage.scope": "统计范围 {from} – {to}",
+			"usage.partial": "会话列表读取失败，统计可能不完整（已保留上次结果）。",
 			"usage.error": "用量统计失败：{message}",
 			"usage.heatmap": "当月每日用量",
 			"platform.apiKeysTitle": "按 API Key",
@@ -2577,8 +2846,10 @@ window.__ModuleLoader__.load({
 			"usage.legendMore": "多",
 			"usage.back": "返回",
 			"usage.hourSummary": "当日 24 小时用量分布：最忙的 {peak} 约 {total} tokens",
-			"usage.ringLabel": "总消耗 {total} 的 Token 构成（缓存读 / 未命中 / 输出）",
-			"usage.hitRate": "缓存命中",
+			"usage.ringLabel": "总消耗 {total} 的 Token 构成（缓存读 / 未命中 / 输出）；缓存命中率 {hit}（按输入侧计算）",
+			"usage.hitRate": "缓存命中率",
+			"usage.aggregating": "正在汇总本地用量…",
+			"usage.hitRateNote": "占输入",
 			"usage.dayTotal": "总消耗",
 			"usage.cacheWrite": "缓存写入",
 			"usage.cost": "费用",
@@ -2590,10 +2861,11 @@ window.__ModuleLoader__.load({
 			"platform.noCredential": "未配置 {ref}。登录 platform.deepseek.com 后打开控制台执行 JSON.parse(localStorage.userToken).value，将结果写入 ~/.dsh/.credentials.yaml。",
 			"platform.noData": "本月暂无用量数据。",
 			"platform.monthCost": "本月消费",
+			"platform.costUnavailable": "费用数据不可用（Token 数据不受影响）。",
 			"platform.todayCost": "今日消费",
 			"platform.requests": "API 请求",
 			"platform.monthRequests": "本月 API 请求",
-			"platform.cacheHit": "缓存命中",
+			"platform.cacheHit": "缓存命中率",
 			"platform.hit": "缓存命中",
 			"platform.miss": "缓存未命中",
 			"platform.output": "输出",
@@ -2622,6 +2894,7 @@ window.__ModuleLoader__.load({
 			"token.clear": "清除",
 			"token.saving": "正在保存…",
 			"token.savedCost": "已保存并同步，本月消费 {cost}",
+			"token.savedNoCost": "已保存并同步（费用数据当前不可用）。",
 			"token.saveFailed": "保存失败：{message}",
 			"token.cleared": "已清除用量 Token。",
 			"token.clearFailed": "清除失败：{message}",
@@ -2681,6 +2954,9 @@ window.__ModuleLoader__.load({
 			"usage.monthTokens": "Month tokens",
 			"usage.monthTokensFor": "{month} tokens",
 			"usage.totalTokens": "All tokens",
+			"usage.totalTokensLimited": "Last 24 months",
+			"usage.scope": "Range {from} – {to}",
+			"usage.partial": "Session listing failed — these numbers may be incomplete (last result kept).",
 			"usage.error": "Usage aggregation failed: {message}",
 			"usage.heatmap": "Daily usage this month",
 			"platform.apiKeysTitle": "By API key",
@@ -2689,8 +2965,10 @@ window.__ModuleLoader__.load({
 			"usage.legendMore": "More",
 			"usage.back": "Back",
 			"usage.hourSummary": "Hourly usage for the day: busiest hour {peak}, about {total} tokens",
-			"usage.ringLabel": "Token composition of {total} total (cache read / miss / output)",
-			"usage.hitRate": "Cache hit",
+			"usage.ringLabel": "Token composition of {total} total (cache read / miss / output); cache hit rate {hit} over prompt tokens",
+			"usage.hitRate": "Cache hit rate",
+			"usage.aggregating": "Aggregating local usage…",
+			"usage.hitRateNote": "of prompt",
 			"usage.dayTotal": "Total consumed",
 			"usage.cacheWrite": "Cache write",
 			"usage.cost": "Cost",
@@ -2702,10 +2980,11 @@ window.__ModuleLoader__.load({
 			"platform.noCredential": "{ref} is not configured. Sign in to platform.deepseek.com, run JSON.parse(localStorage.userToken).value in the console, and write the result to ~/.dsh/.credentials.yaml.",
 			"platform.noData": "No usage data for this month.",
 			"platform.monthCost": "This month",
+			"platform.costUnavailable": "Cost data unavailable (token figures are unaffected).",
 			"platform.todayCost": "Today",
 			"platform.requests": "API requests",
 			"platform.monthRequests": "Requests this month",
-			"platform.cacheHit": "Cache hit",
+			"platform.cacheHit": "Cache hit rate",
 			"platform.hit": "Cache hit",
 			"platform.miss": "Cache miss",
 			"platform.output": "Output",
@@ -2734,6 +3013,7 @@ window.__ModuleLoader__.load({
 			"token.clear": "Clear",
 			"token.saving": "Saving…",
 			"token.savedCost": "Saved and synced — {cost} this month",
+			"token.savedNoCost": "Saved and synced (cost data is currently unavailable).",
 			"token.saveFailed": "Save failed: {message}",
 			"token.cleared": "Usage token cleared.",
 			"token.clearFailed": "Clear failed: {message}",

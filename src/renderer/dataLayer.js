@@ -17,8 +17,13 @@ import { fetchPlatformUsageSmart, fetchPlatformCumulativeTokenTotal, fetchPlatfo
 import { balanceSchemeOf, queryBalance } from "./balance.js";
 
 const PLATFORM_REFRESH_MS = 300000;
+/** A finished month never changes: history months are cached an order of
+ * magnitude longer than the month in progress (mirrors the plugin server). */
+const PLATFORM_HISTORY_REFRESH_MS = 1800000;
 const UPSTREAM_TIMEOUT_MS = 15000;
 const PLATFORM_TOTAL_MAX_MONTHS = 24;
+/** Upper bound for one cumulative scan so the ↻ button can never hang. */
+const PLATFORM_TOTAL_BUDGET_MS = 15000;
 const TOKEN_REF = "DEEPSEEK_USAGE_TOKEN";
 
 //#region transport
@@ -93,32 +98,77 @@ const dayInflight = new Map();
 const totalSummary = { at: 0, result: null };
 const totalMonthCache = new Map();
 let totalInflight = null;
+let totalInflightEpoch = -1;
+
+/**
+ * The platform caches below are only valid for the credential that filled them.
+ * Every accessor resolves the token first and hands it to `cacheGeneration()`:
+ * a changed credential bumps the generation and drops the month/day/total
+ * entries, so switching accounts can never serve the previous account's numbers.
+ * In-flight requests snapshot the generation and discard their result when it
+ * has moved on. The token is compared in memory only — it is never logged.
+ */
+let cacheEpoch = 0;
+let cacheCredential = null;
+
+function dropPlatformCaches() {
+	monthCache.clear();
+	dayCache.clear();
+	totalMonthCache.clear();
+	totalSummary.at = 0;
+	totalSummary.result = null;
+}
+
+function cacheGeneration(token) {
+	if (cacheCredential !== token) {
+		cacheCredential = token;
+		cacheEpoch += 1;
+		dropPlatformCaches();
+	}
+	return cacheEpoch;
+}
+
+/** Saving or clearing the token invalidates every platform cache immediately. */
+export function resetPlatformCaches() {
+	cacheCredential = null;
+	cacheEpoch += 1;
+	dropPlatformCaches();
+}
 
 async function platformMonth(month, year, force = false) {
 	const { month: m, year: y } = normalizeMonthYear(month, year);
 	const key = `${y}-${String(m).padStart(2, "0")}`;
 	const creds = await readCredentials();
 	if (creds.usageToken === "") return null;
+	const epoch = cacheGeneration(creds.usageToken);
+	const flightKey = `${key}|${epoch}`;
 	if (!force) {
 		const hit = monthCache.get(key);
 		if (hit !== void 0 && Date.now() - hit.at < PLATFORM_REFRESH_MS) return hit.result;
 	}
-	const inflight = monthInflight.get(key);
+	const inflight = monthInflight.get(flightKey);
 	if (inflight !== void 0) return inflight;
 	const run = fetchPlatformUsageSmart(creds.usageToken, { month: m, year: y, ...apiOptions }).then((result) => {
-		monthCache.set(key, { at: Date.now(), result });
+		if (epoch === cacheEpoch) monthCache.set(key, { at: Date.now(), result });
 		return result;
 	}).finally(() => {
-		monthInflight.delete(key);
+		monthInflight.delete(flightKey);
 	});
-	monthInflight.set(key, run);
+	monthInflight.set(flightKey, run);
 	return run;
 }
 
-async function platformMonthTokenSum(month, year, timeoutMs = 20000) {
+async function platformMonthTokenSum(month, year, timeoutMs = 20000, force = false) {
 	const key = `${year}-${String(month).padStart(2, "0")}`;
-	const hit = totalMonthCache.get(key);
-	if (hit !== void 0 && Date.now() - hit.at < PLATFORM_REFRESH_MS) return hit.total;
+	const current = normalizeMonthYear(void 0, void 0);
+	// A finished month never changes: history is cached far longer than the month
+	// in progress, and the walk revisits up to 24 of them per scan.
+	const ttl = `${current.year}-${String(current.month).padStart(2, "0")}` === key ? PLATFORM_REFRESH_MS : PLATFORM_HISTORY_REFRESH_MS;
+	const epoch = cacheEpoch;
+	if (!force) {
+		const hit = totalMonthCache.get(key);
+		if (hit !== void 0 && Date.now() - hit.at < ttl) return hit.total;
+	}
 	const token = (await readCredentials()).usageToken;
 	if (token === "") return 0;
 	const total = await Promise.race([
@@ -127,45 +177,56 @@ async function platformMonthTokenSum(month, year, timeoutMs = 20000) {
 		// slow on cold months); treat a timed-out month as 0.
 		new Promise((resolve) => setTimeout(() => resolve(0), timeoutMs))
 	]);
-	totalMonthCache.set(key, { at: Date.now(), total });
+	if (epoch === cacheEpoch) totalMonthCache.set(key, { at: Date.now(), total });
 	return total;
 }
 
 async function platformTotal(force = false) {
 	const token = (await readCredentials()).usageToken;
 	if (token === "") return null;
+	const epoch = cacheGeneration(token);
 	if (!force && totalSummary.result !== null && Date.now() - totalSummary.at < PLATFORM_REFRESH_MS) return totalSummary.result;
-	if (totalInflight !== null) return totalInflight;
-	totalInflight = fetchPlatformCumulativeTokenTotal(token, {
+	if (totalInflight !== null && totalInflightEpoch === epoch) return totalInflight;
+	const run = fetchPlatformCumulativeTokenTotal(token, {
 		...apiOptions,
 		maxMonths: PLATFORM_TOTAL_MAX_MONTHS,
-		monthTotal: (month, year) => platformMonthTokenSum(month, year)
+		budgetMs: PLATFORM_TOTAL_BUDGET_MS,
+		monthTotal: (month, year) => platformMonthTokenSum(month, year, void 0, force)
 	}).then((result) => {
-		totalSummary.at = Date.now();
-		totalSummary.result = result;
+		if (epoch === cacheEpoch) {
+			totalSummary.at = Date.now();
+			totalSummary.result = result;
+		}
 		return result;
 	}).finally(() => {
-		totalInflight = null;
+		if (totalInflight === run) {
+			totalInflight = null;
+			totalInflightEpoch = -1;
+		}
 	});
-	return totalInflight;
+	totalInflight = run;
+	totalInflightEpoch = epoch;
+	return run;
 }
 
 async function platformDayDetail(date, force = false) {
 	const token = (await readCredentials()).usageToken;
 	if (token === "") return null;
+	const epoch = cacheGeneration(token);
+	const flightKey = `${date}|${epoch}`;
 	if (!force) {
 		const hit = dayCache.get(date);
 		if (hit !== void 0 && Date.now() - hit.at < PLATFORM_REFRESH_MS) return hit.result;
 	}
-	const inflight = dayInflight.get(date);
+	const inflight = dayInflight.get(flightKey);
 	if (inflight !== void 0) return inflight;
 	const run = fetchPlatformDayDetail(token, { date, ...apiOptions }).then((result) => {
-		dayCache.set(date, { at: Date.now(), result });
+		if (epoch === cacheEpoch) dayCache.set(date, { at: Date.now(), result });
 		return result;
 	}).finally(() => {
-		dayInflight.delete(date);
+		dayInflight.delete(flightKey);
 	});
-	dayInflight.set(date, run);
+	dayInflight.set(flightKey, run);
 	return run;
 }
 
@@ -288,6 +349,8 @@ async function handleToken(method, body) {
 		try {
 			await invoke("save_token", { token });
 			await readCredentials(true);
+			// The cached month/day/total belong to the previous credential.
+			resetPlatformCaches();
 			return { ok: true, configured: true, source: "app" };
 		} catch (error) {
 			return { ok: false, error: "save-failed", message: error instanceof Error ? error.message : String(error) };
@@ -297,6 +360,7 @@ async function handleToken(method, body) {
 	try {
 		await invoke("clear_token");
 		await readCredentials(true);
+		resetPlatformCaches();
 		return { ok: true, configured: false, source: null };
 	} catch (error) {
 		return { ok: false, error: "clear-failed", message: error instanceof Error ? error.message : String(error) };

@@ -215,7 +215,7 @@ function modelUsageOf(value) {
  * Fetch and normalize one month of DeepSeek platform usage.
  * @param token - usage token (localStorage.userToken on platform.deepseek.com).
  * @param options - `{ month, year, timeoutMs, fetchImpl, now }`.
- * @returns `{ month, year, models, days, monthCost }` where each model entry
+ * @returns `{ month, year, models, days, monthCost, costAvailable }` where each model entry
  *   is `{ key, name, totalTokens, requestCount, cacheHitTokens,
  *   cacheMissTokens, responseTokens, cost }` and each day entry is
  *   `{ date, totalTokens, totalCost, models: { [model]: { cacheHitTokens,
@@ -238,6 +238,9 @@ export async function fetchPlatformUsage(token, options = {}) {
 	if (amount === null || typeof amount !== "object") {
 		throw statusError("invalid-response", "platform amount response is missing data.biz_data");
 	}
+	// Same rule as the by_api_key path: a 200 with no usable cost payload is
+	// "cost unavailable", not "free".
+	const costAvailable = costTotal !== null && typeof costTotal === "object" && (Array.isArray(costTotal.total) || Array.isArray(costTotal.days));
 
 	const models = [];
 	const totals = Array.isArray(amount.total) ? amount.total : [];
@@ -311,7 +314,7 @@ export async function fetchPlatformUsage(token, options = {}) {
 		for (const raw of costTotal.total) monthCost += costOf(modelUsageOf(raw).usage);
 	}
 
-	return { month, year, models, days, monthCost };
+	return { month, year, models, days, monthCost, costAvailable };
 }
 
 /** Normalize one platform usage bucket (`time` epoch + `usage` object) — null when all zero. */
@@ -362,7 +365,7 @@ function addIntoBreakdown(target, breakdown, cost) {
  * to `tz=28800`).
  * @param token - usage token (localStorage.userToken on platform.deepseek.com).
  * @param options - `{ month, year, timeoutMs, fetchImpl, now }`.
- * @returns `{ month, year, source: "by-api-key", models, days, monthCost, apiKeys }`.
+ * @returns `{ month, year, source: "by-api-key", models, days, monthCost, apiKeys, currency, costAvailable }`.
  * @throws an Error with `providerStatus` on upstream failures.
  */
 export async function fetchPlatformUsageByKey(token, options = {}) {
@@ -381,6 +384,11 @@ export async function fetchPlatformUsageByKey(token, options = {}) {
 	if (biz === null || typeof biz !== "object" || !Array.isArray(biz.series)) {
 		throw statusError("invalid-response", "platform by_api_key amount response is missing data.biz_data.series");
 	}
+
+	// A structurally valid cost response is what separates "confirmed zero cost"
+	// from "cost unavailable": the HTTP call can succeed (200) while `biz_data`
+	// is null, and silently rendering that as ¥0.00 claims the usage was free.
+	const costAvailable = costData !== null && typeof costData === "object" && Array.isArray(costData.series);
 
 	// cost lookup: `${trackingId}|${model}|${time}` → numeric cost.
 	const costLookup = new Map();
@@ -472,7 +480,7 @@ export async function fetchPlatformUsageByKey(token, options = {}) {
 		.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
 	const monthCost = [...modelAcc.values()].reduce((sum, entry) => sum + entry.cost, 0);
 
-	return { month, year, source: "by-api-key", models, days, monthCost, apiKeys, currency };
+	return { month, year, source: "by-api-key", models, days, monthCost, apiKeys, currency, costAvailable };
 }
 
 /**
@@ -523,24 +531,35 @@ export async function fetchPlatformMonthTokenSum(token, options = {}) {
 }
 
 /**
- * All-time platform token total: walk months backward from the starting
- * (default: current) month, one query per month, and sum token totals. The
- * walk breaks at the first empty month below the newest data month and trims
- * leading empty months, so a fresh account never scans years of nothing.
- * @returns `{ total, months, oldest }` — `months` counts months with usage,
- *   `oldest` is the `YYYY-MM` of the first month with usage (null when none).
+ * Platform token total over a bounded month window: walk months backward from
+ * the starting (default: current) month, one query per month, and sum the token
+ * totals. An empty month does NOT end the walk — a gap only says that month had
+ * no usage, never that earlier months had none — so the scan covers the whole
+ * `maxMonths` window (default 24) unless `budgetMs` runs out first.
+ *
+ * Because the window is bounded, the result is reported as a scanned range plus
+ * a `limited` flag rather than as an unconditional lifetime total: `limited` is
+ * true whenever the oldest month with usage is the oldest month scanned (there
+ * may be more history below the window) or when no usage was found at all.
+ * Callers must label a limited result accordingly (e.g. "last 24 months").
+ * @returns `{ total, months, oldest, newest, scannedMonths, range: { from, to }, limited }`
+ *   — `months` counts months with usage; `oldest`/`newest` are the `YYYY-MM` of
+ *   the first/last month with usage (null when none); `range` is the scanned
+ *   window, newest first.
  */
 export async function fetchPlatformCumulativeTokenTotal(token, options = {}) {
-	let { month, year } = normalizeMonthYear(options.month, options.year, options.now ?? new Date());
+	const start = normalizeMonthYear(options.month, options.year, options.now ?? new Date());
+	let month = start.month;
+	let year = start.year;
 	const maxMonths = Number.isFinite(options.maxMonths) && options.maxMonths > 0 ? Math.floor(options.maxMonths) : 24;
+	const budgetMs = Number.isFinite(options.budgetMs) && options.budgetMs > 0 ? options.budgetMs : 15000;
 	const monthTotal = typeof options.monthTotal === "function" ? options.monthTotal : null;
+	const deadline = Date.now() + budgetMs;
 	const seen = [];
-	let foundUsage = false;
 	for (let i = 0; i < maxMonths; i += 1) {
+		if (i > 0 && Date.now() > deadline) break; // scan budget spent — report what we have, flagged limited
 		const total = monthTotal !== null ? await monthTotal(month, year) : await fetchPlatformMonthTokenSum(token, { ...options, month, year });
 		seen.push({ year, month, total });
-		if (total > 0) foundUsage = true;
-		else if (foundUsage) break; // first empty month below the newest data — nothing earlier
 		if (month === 1) {
 			month = 12;
 			year -= 1;
@@ -550,10 +569,19 @@ export async function fetchPlatformCumulativeTokenTotal(token, options = {}) {
 	}
 	const withUsage = seen.filter((entry) => entry.total > 0);
 	const oldest = withUsage.length > 0 ? withUsage[withUsage.length - 1] : null;
+	const monthKeyOf = (entry) => `${entry.year}-${String(entry.month).padStart(2, "0")}`;
+	const oldestIndex = oldest === null ? -1 : seen.indexOf(oldest);
 	return {
 		total: withUsage.reduce((sum, entry) => sum + entry.total, 0),
 		months: withUsage.length,
-		oldest: oldest === null ? null : `${oldest.year}-${String(oldest.month).padStart(2, "0")}`
+		oldest: oldest === null ? null : monthKeyOf(oldest),
+		newest: withUsage.length > 0 ? monthKeyOf(withUsage[0]) : null,
+		scannedMonths: seen.length,
+		range: {
+			from: seen.length > 0 ? monthKeyOf(seen[seen.length - 1]) : null,
+			to: monthKeyOf(seen[0] ?? { year: start.year, month: start.month })
+		},
+		limited: oldestIndex === -1 || oldestIndex === seen.length - 1
 	};
 }
 
@@ -563,7 +591,7 @@ export async function fetchPlatformCumulativeTokenTotal(token, options = {}) {
  * per-hour tokens/requests/cost plus per-API-Key and per-model day totals —
  * all from the same two requests.
  * @param options - `{ date: "YYYY-MM-DD" (GMT+8), timeoutMs, fetchImpl }`.
- * @returns `{ date, source: "by-api-key", hours, perKey, perModel, currency }`
+ * @returns `{ date, source: "by-api-key", hours, perKey, perModel, currency, costAvailable }`
  *   with `hours` covering 0–23 (empty hours stay as zeros) in ascending order.
  */
 export async function fetchPlatformDayDetail(token, options = {}) {
@@ -585,6 +613,8 @@ export async function fetchPlatformDayDetail(token, options = {}) {
 	if (biz === null || typeof biz !== "object" || !Array.isArray(biz.series)) {
 		throw statusError("invalid-response", "platform by_api_key amount response is missing data.biz_data.series");
 	}
+
+	const costAvailable = costData !== null && typeof costData === "object" && Array.isArray(costData.series);
 
 	// cost lookup: `${trackingId}|${model}|${hourEpoch}` → numeric cost.
 	const costLookup = new Map();
@@ -649,7 +679,7 @@ export async function fetchPlatformDayDetail(token, options = {}) {
 	const perModel = [...modelAcc.values()]
 		.filter((entry) => entry.totalTokens > 0 || entry.requestCount > 0 || entry.cost > 0)
 		.sort((a, b) => b.totalTokens - a.totalTokens);
-	return { date, source: "by-api-key", hours, perKey, perModel, currency };
+	return { date, source: "by-api-key", hours, perKey, perModel, currency, costAvailable };
 }
 
 /** Credential references used by this module (for docs/tests). */

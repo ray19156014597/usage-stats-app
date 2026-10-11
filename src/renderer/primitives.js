@@ -108,6 +108,14 @@
   }
 
   window.USG_PRIMITIVES = {
+    // dsh 0.1.7 renamed the icons (optical size → stroke-weight suffix); both
+    // spellings stay exported so either resolver order keeps working.
+    IconDataOutlineRegular: IconDataOutline16,
+    IconRefreshOutlineRegular: IconRefreshOutline14,
+    IconSettingsOutlineRegular: IconSettingsOutline14,
+    IconCloseOutlineRegular: IconCloseOutline16,
+    IconChevronLeftOutlineRegular: IconChevronLeftOutline14,
+    IconChevronRightOutlineRegular: IconChevronRightOutline14,
     IconDataOutline16: IconDataOutline16,
     IconRefreshOutline14: IconRefreshOutline14,
     IconSettingsOutline14: IconSettingsOutline14,
