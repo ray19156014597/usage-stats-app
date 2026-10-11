@@ -1,6 +1,6 @@
 [package]
 name = "usage-stats-app"
-version = "0.4.3"
+version = "0.4.4"
 description = "DeepSeek usage desktop monitor (Tauri shell, plugin panel UI)"
 edition = "2021"
 

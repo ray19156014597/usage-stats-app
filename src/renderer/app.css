@@ -15,6 +15,10 @@ html, body {
   height: 100%;
   overflow: hidden;
   font-family: "Segoe UI", "Microsoft YaHei", system-ui, -apple-system, sans-serif;
+  /* 窗口本身透明（tauri.conf.json: transparent + windowEffects: acrylic）：页面不留底，
+     玻璃背后就是被系统亚克力模糊过的真实桌面 —— 与插件版"面板浮在会话内容上"
+     同一套读法，独立版不再自己造一层背景。 */
+  background: transparent;
 }
 
 /* Authentic dsh theme alias values (dark = default, light via media query). */
@@ -34,9 +38,6 @@ body {
   --dsw-alias-scrollbar-bg-l2: #545557;
   --dsw-alias-scrollbar-hover-l2: #65676b;
   margin: 0;
-  background:
-    radial-gradient(1200px 800px at 82% -10%, color-mix(in srgb, #4d6bfe 7%, transparent), transparent 60%),
-    #151517;
   color: var(--dsw-alias-label-primary);
 }
 
@@ -56,9 +57,6 @@ body {
     --dsw-alias-state-success-primary: #22c55e;
     --dsw-alias-scrollbar-bg-l2: #e5e5e5;
     --dsw-alias-scrollbar-hover-l2: #d4d4d4;
-    background:
-      radial-gradient(1200px 800px at 82% -10%, color-mix(in srgb, #4d6bfe 8%, transparent), transparent 60%),
-      #ffffff;
   }
 }
 
@@ -119,12 +117,10 @@ body {
 .usg_resize.se { bottom: 0; right: 0; width: 10px; height: 10px; cursor: se-resize; }
 .usg_resize.sw { bottom: 0; left: 0; width: 10px; height: 10px; cursor: sw-resize; }
 
-/* App window: the dsh floating popup becomes the app's surface.
-   材质 v3 的"厚度"全部长在边缘上（渐变描边环、定向内阴影、顶边柔光），所以面板
-   不能铺满窗口 —— 那样圆角为 0、边缘效果没有形状可依附，看起来就是一块黑窗
-   （实测：满窗时整窗平均像素差仅 2.85/255 ≈ 1.1%，几乎不透）。
-   这里改成内缩 8px 的真卡片：圆角、描边环、受光边、顶部柔光全部回到视野里，
-   面板外那圈留给结构化背景，玻璃才有东西可"透"。 */
+/* App window: 面板就是窗口本身（inset:0）—— 全窗只有一层边，和插件版那块浮起来
+   的玻璃同一套读法：渐变描边环沿着窗口边、定向内阴影给出受光方向、顶边柔光整体
+   存在感。玻璃背后由系统亚克力把真实桌面模糊掉（tauri.conf.json 的
+   transparent + windowEffects: acrylic），所以这里**不造任何背景层**。 */
 .usg_layer {
   height: 49px;
   margin: 0 !important;
@@ -143,10 +139,9 @@ body {
 
 .usg_panel {
   position: fixed !important;
-  inset: 8px !important;
-  /* 左/上/右/下 由 inset 决定，宽度不能再写 100%（否则会右溢 8px）。 */
-  width: auto !important;
-  height: auto !important;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
   max-width: none !important;
   max-height: none !important;
   border: none !important;
@@ -172,87 +167,6 @@ body {
   color: var(--dsw-alias-label-tertiary);
   font-size: 12px;
   line-height: 18px;
-}
-
-/* ============================================================
-   结构化背景：玻璃只有在背后有东西可"透"时才读得出材质。
-   插件版浮在 DSH 会话内容上，天然有结构；独立版窗口背后什么都没有，
-   blur(6px) 会糊在一块纯色上 —— 于是这里铺一层等距网格 + 三团柔光，
-   并整体提亮一档（brightness 1.45 / saturate 1.25），让 42.7% 的压暗
-   之后仍能看出结构：实测背景均值 29.1→35.6、标准差 10.9→13.9，
-   整窗透光度 2.85→6.04（×2.1）。
-   ============================================================ */
-.usg_appBackdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 0;
-  overflow: hidden;
-  pointer-events: none;
-  filter: brightness(1.45) saturate(1.25);
-  background:
-    radial-gradient(120% 80% at 8% -10%, color-mix(in srgb, #4d6bfe 16%, transparent), transparent 58%),
-    radial-gradient(90% 70% at 108% 10%, color-mix(in srgb, #6d46d9 14%, transparent), transparent 55%),
-    radial-gradient(120% 90% at 50% 112%, color-mix(in srgb, #2b7f96 12%, transparent), transparent 62%);
-}
-
-.usg_appGrid {
-  position: absolute;
-  inset: -10%;
-  background-image:
-    repeating-linear-gradient(60deg, color-mix(in srgb, #5fd4e8 16%, transparent) 0 1px, transparent 1px 72px),
-    repeating-linear-gradient(-60deg, color-mix(in srgb, #5fd4e8 16%, transparent) 0 1px, transparent 1px 72px),
-    repeating-linear-gradient(0deg, color-mix(in srgb, #4d6bfe 12%, transparent) 0 1px, transparent 1px 120px);
-  opacity: 1;
-}
-
-.usg_appGlow {
-  position: absolute;
-  border-radius: 50%;
-  filter: blur(64px);
-  opacity: 0.55;
-}
-
-.usg_appGlow.g1 {
-  width: 46vw;
-  height: 34vh;
-  left: -8vw;
-  top: 6vh;
-  background: #2b52b8;
-}
-
-.usg_appGlow.g2 {
-  width: 42vw;
-  height: 30vh;
-  right: -6vw;
-  top: 34vh;
-  background: #4a3a86;
-  opacity: 0.45;
-}
-
-@media (prefers-color-scheme: light) {
-  /* 浅色下背景本来就是亮白，不能再提亮（会糊成一片），只提饱和与结构。 */
-  .usg_appBackdrop {
-    filter: saturate(1.2);
-    background:
-      radial-gradient(120% 80% at 8% -10%, color-mix(in srgb, #4d6bfe 12%, transparent), transparent 58%),
-      radial-gradient(90% 70% at 108% 10%, color-mix(in srgb, #6d46d9 10%, transparent), transparent 55%),
-      radial-gradient(120% 90% at 50% 112%, color-mix(in srgb, #2b7f96 9%, transparent), transparent 62%);
-  }
-
-  .usg_appGrid {
-    opacity: 0.85;
-  }
-
-  .usg_appGlow {
-    opacity: 0.4;
-  }
-}
-
-@media (prefers-reduced-transparency: reduce) {
-  .usg_appBackdrop,
-  .usg_appGlow {
-    display: none;
-  }
 }
 
 /* 无边框窗口的缩放热区：悬停时给对应的那条边描一道受光边，
