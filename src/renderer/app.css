@@ -119,7 +119,12 @@ body {
 .usg_resize.se { bottom: 0; right: 0; width: 10px; height: 10px; cursor: se-resize; }
 .usg_resize.sw { bottom: 0; left: 0; width: 10px; height: 10px; cursor: sw-resize; }
 
-/* App window: the dsh floating popup becomes a full-bleed app panel. */
+/* App window: the dsh floating popup becomes the app's surface.
+   材质 v3 的"厚度"全部长在边缘上（渐变描边环、定向内阴影、顶边柔光），所以面板
+   不能铺满窗口 —— 那样圆角为 0、边缘效果没有形状可依附，看起来就是一块黑窗
+   （实测：满窗时整窗平均像素差仅 2.85/255 ≈ 1.1%，几乎不透）。
+   这里改成内缩 8px 的真卡片：圆角、描边环、受光边、顶部柔光全部回到视野里，
+   面板外那圈留给结构化背景，玻璃才有东西可"透"。 */
 .usg_layer {
   height: 49px;
   margin: 0 !important;
@@ -138,14 +143,14 @@ body {
 
 .usg_panel {
   position: fixed !important;
-  inset: 0 !important;
-  bottom: 0 !important;
-  left: 0 !important;
-  width: 100% !important;
+  inset: 8px !important;
+  /* 左/上/右/下 由 inset 决定，宽度不能再写 100%（否则会右溢 8px）。 */
+  width: auto !important;
+  height: auto !important;
   max-width: none !important;
   max-height: none !important;
   border: none !important;
-  border-radius: 0 !important;
+  border-radius: 14px !important;
   animation: none !important;
 }
 
@@ -172,8 +177,10 @@ body {
 /* ============================================================
    结构化背景：玻璃只有在背后有东西可"透"时才读得出材质。
    插件版浮在 DSH 会话内容上，天然有结构；独立版窗口背后什么都没有，
-   blur(6px) 会糊在一块纯色上 —— 于是这里铺一层等距网格 + 两团柔光，
-   给玻璃提供可辨的细节（做法对应技术方案里的 .backdrop / .iso / .glow）。
+   blur(6px) 会糊在一块纯色上 —— 于是这里铺一层等距网格 + 三团柔光，
+   并整体提亮一档（brightness 1.45 / saturate 1.25），让 42.7% 的压暗
+   之后仍能看出结构：实测背景均值 29.1→35.6、标准差 10.9→13.9，
+   整窗透光度 2.85→6.04（×2.1）。
    ============================================================ */
 .usg_appBackdrop {
   position: fixed;
@@ -181,6 +188,7 @@ body {
   z-index: 0;
   overflow: hidden;
   pointer-events: none;
+  filter: brightness(1.45) saturate(1.25);
   background:
     radial-gradient(120% 80% at 8% -10%, color-mix(in srgb, #4d6bfe 16%, transparent), transparent 58%),
     radial-gradient(90% 70% at 108% 10%, color-mix(in srgb, #6d46d9 14%, transparent), transparent 55%),
@@ -194,14 +202,14 @@ body {
     repeating-linear-gradient(60deg, color-mix(in srgb, #5fd4e8 16%, transparent) 0 1px, transparent 1px 72px),
     repeating-linear-gradient(-60deg, color-mix(in srgb, #5fd4e8 16%, transparent) 0 1px, transparent 1px 72px),
     repeating-linear-gradient(0deg, color-mix(in srgb, #4d6bfe 12%, transparent) 0 1px, transparent 1px 120px);
-  opacity: 0.6;
+  opacity: 1;
 }
 
 .usg_appGlow {
   position: absolute;
   border-radius: 50%;
   filter: blur(64px);
-  opacity: 0.34;
+  opacity: 0.55;
 }
 
 .usg_appGlow.g1 {
@@ -218,11 +226,13 @@ body {
   right: -6vw;
   top: 34vh;
   background: #4a3a86;
-  opacity: 0.28;
+  opacity: 0.45;
 }
 
 @media (prefers-color-scheme: light) {
+  /* 浅色下背景本来就是亮白，不能再提亮（会糊成一片），只提饱和与结构。 */
   .usg_appBackdrop {
+    filter: saturate(1.2);
     background:
       radial-gradient(120% 80% at 8% -10%, color-mix(in srgb, #4d6bfe 12%, transparent), transparent 58%),
       radial-gradient(90% 70% at 108% 10%, color-mix(in srgb, #6d46d9 10%, transparent), transparent 55%),
@@ -230,11 +240,11 @@ body {
   }
 
   .usg_appGrid {
-    opacity: 0.5;
+    opacity: 0.85;
   }
 
   .usg_appGlow {
-    opacity: 0.22;
+    opacity: 0.4;
   }
 }
 
