@@ -729,6 +729,10 @@ window.__ModuleLoader__.load({
 			const [apiKeysOpen, setApiKeysOpen] = react.useState(false);
 			// 独立版专属：窗口置顶状态（无边框窗口的图钉按钮）。
 			const [pinned, setPinned] = react.useState(false);
+			// 独立版专属：实时玻璃背景开关（设置页；暂停后窗口可被截图）。
+			const [liveBackdrop, setLiveBackdrop] = react.useState(true);
+			// 独立版才有 Tauri 桥；网页端（插件）不显示这个开关。
+			const backdropAvailable = typeof window !== "undefined" && Boolean(window.__TAURI__ && window.__TAURI__.core && typeof window.__TAURI__.core.invoke === "function");
 			// A1 分层：这两个明细块默认折叠，首屏留给余额/统计/热力图。
 			const [recentOpen, setRecentOpen] = react.useState(false);
 			const [platformOpen, setPlatformOpen] = react.useState(false);
@@ -761,6 +765,37 @@ window.__ModuleLoader__.load({
 			// 平台口径是否可用：热力图数据源、轮询范围与日详情请求都取决于它。
 			// 放在回调之前声明，回调的依赖数组在渲染时就要读它（否则 TDZ）。
 			const platformActive = platform !== null && Array.isArray(platform.days) && platform.days.length > 0;
+
+			// 独立版：实时玻璃背景。初值来自 Rust（托盘勾选状态）；托盘菜单、快捷键
+			// 或设置页切换后 Rust 会广播 usg-live-backdrop，设置页与渲染层同步。
+			react.useEffect(() => {
+				const bridge = typeof window !== "undefined" ? window.__TAURI__ : null;
+				const invokeCommand = bridge && bridge.core ? bridge.core.invoke : null;
+				if (typeof invokeCommand !== "function") return undefined;
+				let disposed = false;
+				invokeCommand("backdrop_live_pref").then((pref) => {
+					if (!disposed) setLiveBackdrop(Boolean(pref));
+				}).catch(() => {});
+				let unlisten = null;
+				if (bridge.event && typeof bridge.event.listen === "function") {
+					bridge.event.listen("usg-live-backdrop", (event) => {
+						setLiveBackdrop(Boolean(event && event.payload));
+					}).then((fn) => { unlisten = fn; }).catch(() => {});
+				}
+				return () => {
+					disposed = true;
+					if (typeof unlisten === "function") unlisten();
+				};
+			}, []);
+
+			const toggleLiveBackdrop = react.useCallback(() => {
+				const bridge = typeof window !== "undefined" ? window.__TAURI__ : null;
+				const invokeCommand = bridge && bridge.core ? bridge.core.invoke : null;
+				if (typeof invokeCommand !== "function") return;
+				invokeCommand("set_backdrop_live_pref", { enabled: !liveBackdrop })
+					.then((value) => setLiveBackdrop(Boolean(value)))
+					.catch(() => {});
+			}, [liveBackdrop]);
 
 			// 打开/关闭：关闭先播退场动效（data-closing）再卸载节点；这期间「逻辑上
 			// 已关闭」，所以轮询与数据请求立即停止，不会在退场动画里偷偷刷新。
@@ -807,6 +842,22 @@ window.__ModuleLoader__.load({
 				window.__TAURI__.core.invoke(command, args).catch(() => { /* 权限缺失时保持 UI 可用 */ });
 				return true;
 			}, []);
+
+			/** 最小化：Windows 原生最小化动画会把窗口朝屏幕中央收拢，这里改成页面先朝
+			 *  **左下角**收拢（见 app.css 的 usg-minimize-to-corner），收拢到完全透明后再
+			 *  最小化窗口 —— 这样系统那层动画作用在已经看不见的窗口上，不会和页面动画
+			 *  叠成"两层"（窗口材质也已移除，否则它不跟随页面缩放）。 */
+			const minimizeWithCornerAnimation = react.useCallback(() => {
+				const root = document.documentElement;
+				root.dataset.usgMinimizing = "true";
+				// 180ms 动画 + 一帧余量，确保调用原生最小化时页面已经全透明。
+				window.setTimeout(() => {
+					tauriInvoke("plugin:window|minimize");
+					window.setTimeout(() => {
+						delete root.dataset.usgMinimizing;
+					}, 280);
+				}, 200);
+			}, [tauriInvoke]);
 
 			/** × 与 Esc 都表示"隐藏窗口到托盘"（Rust 侧 CloseRequested 会 prevent_close + hide），
 			 *  只有在没有 Tauri 桥的浏览器预览里才退回"收起面板"。 */
@@ -1536,7 +1587,7 @@ window.__ModuleLoader__.load({
 												type: "button",
 												className: S.iconButton,
 												"aria-label": translate("action.minimize"),
-												onClick: () => { tauriInvoke("plugin:window|minimize"); },
+												onClick: minimizeWithCornerAnimation,
 												children: ICONS.minimize && react_jsx_runtime.jsx(ICONS.minimize, { size: 14 })
 											}),
 											react_jsx_runtime.jsx("button", {
@@ -1581,6 +1632,9 @@ window.__ModuleLoader__.load({
 										onStartSync: startSync,
 										onStopSync: stopSync,
 										onBack: () => setShowSettings(false),
+										liveBackdrop,
+										onToggleLiveBackdrop: toggleLiveBackdrop,
+										backdropAvailable,
 										translate
 									}) : (selectedEntry !== null ? react_jsx_runtime.jsx(DayDetail, {
 										day: selectedEntry,
@@ -2713,7 +2767,7 @@ window.__ModuleLoader__.load({
 		 * login automatically; method 2 is the manual paste fallback. Saving
 		 * or capturing immediately refreshes the platform usage data below.
 		 */
-		function TokenSettingsView({ status, busy, message, value, onChange, onPaste, onSave, onClear, syncRunning, onStartSync, onStopSync, onBack, translate }) {
+		function TokenSettingsView({ status, busy, message, value, onChange, onPaste, onSave, onClear, syncRunning, onStartSync, onStopSync, onBack, liveBackdrop, onToggleLiveBackdrop, backdropAvailable, translate }) {
 			const configured = status?.configured === true;
 			return react_jsx_runtime.jsxs(react_jsx_runtime.Fragment, {
 				children: [
@@ -2735,8 +2789,6 @@ window.__ModuleLoader__.load({
 						children: [
 							react_jsx_runtime.jsx("h3", { className: S.sectionTitle, children: translate("token.title") }),
 							react_jsx_runtime.jsx("p", { className: S.note, children: translate("token.description") }),
-							react_jsx_runtime.jsx("h3", { className: S.sectionTitle, children: translate("token.method1") }),
-							react_jsx_runtime.jsx("p", { className: S.platformHint, children: translate("token.syncHint") }),
 							react_jsx_runtime.jsxs("div", {
 								className: S.settingsActions,
 								children: [
@@ -2757,8 +2809,6 @@ window.__ModuleLoader__.load({
 									})
 								]
 							}),
-							react_jsx_runtime.jsx("h3", { className: S.sectionTitle, children: translate("token.method2") }),
-							react_jsx_runtime.jsx("p", { className: S.platformHint, children: translate("token.howToGet") }),
 							react_jsx_runtime.jsx("input", {
 								className: S.settingsInput,
 								type: "password",
@@ -2796,10 +2846,50 @@ window.__ModuleLoader__.load({
 									})
 								]
 							}),
+							// 细节说明收进可展开项：默认只留一行状态，设置页不再被大段文字占满。
+							react_jsx_runtime.jsxs("details", {
+								className: "usg_settingsDetails",
+								children: [
+									react_jsx_runtime.jsx("summary", { children: translate("token.help") }),
+									react_jsx_runtime.jsx("p", { children: translate("token.howToGet") }),
+									react_jsx_runtime.jsx("p", { children: translate("token.syncHint") })
+								]
+							}),
 							// 未保存时优先说"还没保存"，避免上次的成功文案被误读成本次结果。
 							react_jsx_runtime.jsx("p", { className: S.note, children: value.trim() !== "" ? translate("token.unsaved") : (message !== "" ? message : (configured ? translate("token.configured", { source: status?.source === "credential" ? translate("token.sourceCredential") : translate("token.sourceStored") }) : translate("token.notConfigured"))) })
 						]
-					})
+					}),
+					// 独立版专属：实时玻璃背景开关。开启时窗口对屏幕捕获隐身（截图/录屏
+					// 看不到它），换取逐帧跟手的玻璃背景；暂停后回到低频采样，可正常截图。
+					backdropAvailable ? react_jsx_runtime.jsxs("section", {
+						className: S.section,
+						children: [
+							react_jsx_runtime.jsx("h3", { className: S.sectionTitle, children: translate("backdrop.title") }),
+							react_jsx_runtime.jsx("p", { className: S.note, children: translate("backdrop.description") }),
+							react_jsx_runtime.jsxs("div", {
+								className: "usg_switchRow",
+								children: [
+									react_jsx_runtime.jsxs("div", {
+										className: "usg_switchText",
+										children: [
+											react_jsx_runtime.jsx("span", { className: "usg_switchLabel", children: translate("backdrop.switchLabel") }),
+											react_jsx_runtime.jsx("span", { className: "usg_switchHint", children: liveBackdrop ? translate("backdrop.onHint") : translate("backdrop.offHint") })
+										]
+									}),
+									react_jsx_runtime.jsx("button", {
+										type: "button",
+										role: "switch",
+										"aria-checked": liveBackdrop ? "true" : "false",
+										"aria-label": translate("backdrop.title"),
+										className: "usg_switch",
+										"data-on": liveBackdrop ? "true" : void 0,
+										onClick: onToggleLiveBackdrop,
+										children: react_jsx_runtime.jsx("span", { className: "usg_switchThumb" })
+									})
+								]
+							})
+						]
+					}) : null
 				]
 			});
 		}
@@ -2873,11 +2963,11 @@ window.__ModuleLoader__.load({
 			"settings.title": "设置",
 			"settings.back": "返回",
 			"token.title": "DeepSeek 用量 Token",
-			"token.description": "用于同步平台用量与消费（与 API Key 不同）。",
-			"token.method1": "方式一：网页登录自动同步",
-			"token.syncButton": "网页登录自动同步",
+			"token.description": "用于同步平台用量与消费。",
+			"token.help": "获取方式",
+			"token.syncButton": "网页登录同步",
 			"token.syncStop": "停止同步",
-			"token.syncHint": "点击后打开平台登录窗口（Edge/Chrome），登录成功后自动捕获用量 Token、验证并刷新数据。",
+			"token.syncHint": "会打开登录窗口（Edge/Chrome），登录成功后自动填入。",
 			"token.syncStarting": "正在打开登录窗口…",
 			"token.syncOpened": "登录窗口已打开，请在窗口中登录 platform.deepseek.com；成功后自动同步。",
 			"token.syncCaptured": "已通过网页登录自动同步用量 Token，正在刷新…",
@@ -2885,8 +2975,7 @@ window.__ModuleLoader__.load({
 			"token.syncTimeout": "同步超时，请重试或使用方式二手动粘贴。",
 			"token.syncUnavailable": "未找到 Edge/Chrome，无法自动同步；请使用方式二手动粘贴。",
 			"token.syncFailed": "登录同步失败：{message}",
-			"token.method2": "方式二：手动粘贴",
-			"token.howToGet": "获取：登录 platform.deepseek.com 后按 F12 打开控制台，执行 JSON.parse(localStorage.userToken).value，复制返回的字符串粘贴到下方。Token 会过期，查询失败时重新获取即可。",
+			"token.howToGet": "登录 platform.deepseek.com，在控制台执行 JSON.parse(localStorage.userToken).value，把返回值粘贴到上方。",
 			"token.placeholder": "粘贴用量 Token…",
 			"token.configuredPlaceholder": "已配置（粘贴新 Token 可覆盖）",
 			"token.paste": "从剪贴板粘贴",
@@ -2906,6 +2995,11 @@ window.__ModuleLoader__.load({
 			"token.unsaved": "输入还没保存 —— 点「保存」后生效。",
 			"token.sourceCredential": "credentials 文件",
 			"token.sourceStored": "面板设置",
+			"backdrop.title": "实时玻璃背景",
+			"backdrop.description": "实时抓取窗口背后的画面（约 30fps）；Ctrl+Alt+L 可暂停。",
+			"backdrop.switchLabel": "实时背景",
+			"backdrop.onHint": "截图/录屏中隐藏本窗口",
+			"backdrop.offHint": "低频采样，可正常截图",
 			"month.year": "{year}年{month}",
 			"action.refresh": "刷新",
 			"action.refreshing": "刷新中…",
@@ -2992,11 +3086,11 @@ window.__ModuleLoader__.load({
 			"settings.title": "Settings",
 			"settings.back": "Back",
 			"token.title": "DeepSeek usage token",
-			"token.description": "Syncs platform usage and spend (not the API key).",
-			"token.method1": "Method 1: web-login auto-sync",
-			"token.syncButton": "Web-login auto-sync",
+			"token.description": "Syncs platform usage and spend.",
+			"token.help": "How to get it",
+			"token.syncButton": "Web-login sync",
 			"token.syncStop": "Stop sync",
-			"token.syncHint": "Opens the platform login window (Edge/Chrome); after login the usage token is captured, verified and the data refreshes automatically.",
+			"token.syncHint": "Opens a login window (Edge/Chrome) and fills the field after sign-in.",
 			"token.syncStarting": "Opening the login window…",
 			"token.syncOpened": "Login window opened — sign in to platform.deepseek.com in it; sync happens automatically.",
 			"token.syncCaptured": "Usage token captured via web login; refreshing…",
@@ -3004,8 +3098,7 @@ window.__ModuleLoader__.load({
 			"token.syncTimeout": "Sync timed out — try again or use method 2 (manual paste).",
 			"token.syncUnavailable": "Edge/Chrome not found — auto-sync unavailable; use method 2 (manual paste).",
 			"token.syncFailed": "Login sync failed: {message}",
-			"token.method2": "Method 2: manual paste",
-			"token.howToGet": "To get it: sign in to platform.deepseek.com, press F12, run JSON.parse(localStorage.userToken).value in the console and paste the returned string below. The token expires; fetch a new one when queries fail.",
+			"token.howToGet": "Sign in to platform.deepseek.com, run JSON.parse(localStorage.userToken).value in the console and paste the value above.",
 			"token.placeholder": "Paste usage token…",
 			"token.configuredPlaceholder": "Configured (paste a new token to replace)",
 			"token.paste": "Paste from clipboard",
@@ -3025,6 +3118,13 @@ window.__ModuleLoader__.load({
 			"token.unsaved": "Unsaved input — click Save to apply.",
 			"token.sourceCredential": "credentials file",
 			"token.sourceStored": "panel settings",
+			"backdrop.title": "Live glass backdrop",
+			"backdrop.description": "Live screen behind the window (~30fps). Ctrl+Alt+L pauses it.",
+			"backdrop.switchLabel": "Live backdrop",
+			"backdrop.footnote": "Ctrl+Alt+L pauses or resumes it at any time.",
+			"backdrop.onHint": "Hidden from screenshots/recordings",
+			"backdrop.offHint": "Low-rate sampling; screenshots work",
+			"backdrop.unavailable": "Available in the desktop app only.",
 			"month.year": "{month} {year}",
 			"action.refresh": "Refresh",
 			"action.refreshing": "Refreshing…",

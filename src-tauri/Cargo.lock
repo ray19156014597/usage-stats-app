@@ -4636,7 +4636,7 @@ dependencies = [
 
 [[package]]
 name = "usage-stats-app"
-version = "0.4.4"
+version = "0.4.5"
 dependencies = [
  "dirs 6.0.0",
  "serde",

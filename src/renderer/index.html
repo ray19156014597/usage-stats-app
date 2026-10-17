@@ -18,6 +18,11 @@
   </style>
 </head>
 <body>
+  <!-- 玻璃背后的"页面内容"：Rust 抓来的窗口后方屏幕画面（见 backdrop.js），
+       面板那层 backdrop-filter: blur(6px) saturate(1.9) 糊的就是它。 -->
+  <div class="usg_appBackdrop" aria-hidden="true">
+    <canvas id="usg_appBackdropCanvas"></canvas>
+  </div>
   <div class="usg_resize" data-edge="n"></div>
   <div class="usg_resize" data-edge="s"></div>
   <div class="usg_resize" data-edge="e"></div>
@@ -36,6 +41,7 @@
   </script>
   <script src="/client.js"></script>
   <script type="module" src="/boot.js"></script>
+  <script src="/backdrop.js"></script>
   <link rel="stylesheet" href="/app.css" />
 </body>
 </html>
