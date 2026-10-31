@@ -56,8 +56,10 @@ Tauri 自带的 `TrayIconBuilder` 在本机（Windows 11 build 29526）会"build
 `Shell_NotifyIconW(NIM_ADD)` 注册，左键显示面板、右键原生菜单（打开面板 / 开机自启 / 实时玻璃背景 / 退出），
 收到 `TaskbarCreated` 自动重新注册；每一步写日志（`NIM_ADD ok=… err=…`）。
 
-**安装位置有坑**：exe 放在 `E:\Apps` 树下时，`NIM_ADD` 一律返回 `err=5`（ACCESS_DENIED）、托盘不出现；
-同一份 exe 放到 `E:\Apps2`、`E:\DeepSeekUsage`、构建输出目录都正常。所以默认安装路径为 `E:\DeepSeekUsage`。
+**一个开发机上观察到的异常（不是通用规则）**：同一份 exe 放在 `E:\Apps` 目录树下时，
+`NIM_ADD` 一律返回 `err=5`（ACCESS_DENIED）、托盘不出现；把它复制到 `E:\Apps2`、其它目录或构建输出目录都正常注册。
+安装位置本来由用户在 NSIS 向导里选择（默认当前用户目录），所以这只是排查线索：
+如果收到"没有托盘图标"的反馈，先看日志里的 `NIM_ADD`，再让用户确认 `^` 溢出区与任务栏设置。
 
 `USG_CAPTURE_SAFE=1` 启动时把"实时玻璃背景"降级为跟手模式，方便对窗口本身截图/录屏。
 
