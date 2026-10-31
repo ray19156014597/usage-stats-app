@@ -253,7 +253,7 @@ async function handleAccount() {
 				mode: "balance",
 				status: "not-configured",
 				missingCredentials: ["DEEPSEEK_API_KEY"],
-				statusMessage: "未配置 DEEPSEEK_API_KEY（可在应用配置或环境变量中设置）",
+				statusMessage: "未配置 API Key（在设置 → API Key 中填写）",
 				balance: null,
 				fetchedAt: Date.now()
 			}
@@ -300,8 +300,13 @@ async function handlePlatform(search) {
 	}
 	const result = await platformMonth(params.month, params.year, force);
 	if (result === null) return { ok: false, error: "no-credential", message: TOKEN_REF };
-	// Push a live tray tooltip whenever the platform data loads (best-effort).
-	updateTrayTooltip(result).catch(() => {});
+	// The tray shows "本月", so ONLY a query for the current Beijing month may drive
+	// it. Browsing September (or the cross-month prefetch behind the 14-day list)
+	// used to rewrite "本月" with a historical month's cost (report F09).
+	const current = normalizeMonthYear(void 0, void 0);
+	if (params.month === current.month && params.year === current.year) {
+		updateTrayTooltip(result, `${current.year}-${String(current.month).padStart(2, "0")}`).catch(() => {});
+	}
 	return { ok: true, fetchedAt: Date.now(), ...result };
 }
 
@@ -310,14 +315,20 @@ function gmt8TodayKey() {
 	return new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
 }
 
-/** Best-effort: report today tokens / month cost to the Rust tray tooltip. */
-async function updateTrayTooltip(result) {
+/**
+ * Best-effort: report the current month's tokens / cost to the Rust tray tooltip.
+ * `monthLabel` is passed through so the tooltip can show which month the number
+ * belongs to; `currency` keeps a non-CNY account from being rendered as ¥.
+ */
+async function updateTrayTooltip(result, monthLabel = null) {
 	if (!Array.isArray(result?.days) || typeof result?.monthCost !== "number") return;
 	const today = gmt8TodayKey();
 	const day = result.days.find((entry) => entry.date === today) ?? null;
 	await invoke("update_tray_tooltip", {
 		todayTokens: typeof day?.totalTokens === "number" ? day.totalTokens : 0,
-		monthCost: result.monthCost
+		monthCost: result.monthCost,
+		currency: typeof result.currency === "string" ? result.currency : "CNY",
+		monthLabel
 	});
 }
 
@@ -341,17 +352,29 @@ async function handleToken(method, body) {
 	if (method === "GET") {
 		const creds = await readCredentials(true);
 		const configured = creds.usageToken !== "";
-		return { ok: true, configured, source: configured ? "app" : null };
+		// The app has a single credential source, but the payload keeps the same
+		// shape as the plugin (which has two) so the panel code stays shared.
+		return {
+			ok: true,
+			configured,
+			source: configured ? "app" : null,
+			ref: TOKEN_REF,
+			storedConfigured: configured,
+			credentialOverride: false,
+			apiKeyConfigured: creds.apiKey !== ""
+		};
 	}
 	if (method === "POST") {
 		const token = typeof body?.token === "string" ? body.token.trim() : "";
 		if (token === "") return { ok: false, error: "invalid-token", message: "token must be a non-empty string" };
 		try {
+			// The Rust side only resolves after the file was written; a failed write
+			// comes back as a rejected invoke and is reported here (F01).
 			await invoke("save_token", { token });
 			await readCredentials(true);
 			// The cached month/day/total belong to the previous credential.
 			resetPlatformCaches();
-			return { ok: true, configured: true, source: "app" };
+			return { ok: true, configured: true, source: "app", ref: TOKEN_REF, storedConfigured: true, credentialOverride: false };
 		} catch (error) {
 			return { ok: false, error: "save-failed", message: error instanceof Error ? error.message : String(error) };
 		}
@@ -361,7 +384,38 @@ async function handleToken(method, body) {
 		await invoke("clear_token");
 		await readCredentials(true);
 		resetPlatformCaches();
-		return { ok: true, configured: false, source: null };
+		return { ok: true, configured: false, source: null, ref: TOKEN_REF, storedConfigured: false, credentialOverride: false };
+	} catch (error) {
+		return { ok: false, error: "clear-failed", message: error instanceof Error ? error.message : String(error) };
+	}
+}
+
+/**
+ * Balance API key settings (report F12): the panel used to tell the user to edit
+ * `~/.dsh/.credentials.yaml`, which this app never reads. The key now has its own
+ * command pair and its own route.
+ */
+async function handleApiKey(method, body) {
+	if (method === "GET") {
+		const creds = await readCredentials(true);
+		const configured = creds.apiKey !== "";
+		return { ok: true, configured };
+	}
+	if (method === "POST") {
+		const key = typeof body?.key === "string" ? body.key.trim() : "";
+		if (key === "") return { ok: false, error: "invalid-key", message: "API key must be a non-empty string" };
+		try {
+			await invoke("save_api_key", { key });
+			await readCredentials(true);
+			return { ok: true, configured: true };
+		} catch (error) {
+			return { ok: false, error: "save-failed", message: error instanceof Error ? error.message : String(error) };
+		}
+	}
+	try {
+		await invoke("clear_api_key");
+		await readCredentials(true);
+		return { ok: true, configured: false };
 	} catch (error) {
 		return { ok: false, error: "clear-failed", message: error instanceof Error ? error.message : String(error) };
 	}
@@ -408,6 +462,7 @@ export function createDataLayer() {
 				if (pathname === "/api/usage-stats/platform/day") return await handlePlatformDay(search);
 				if (pathname === "/api/usage-stats/platform/total") return await handlePlatformTotal(search);
 				if (pathname === "/api/usage-stats/platform/token") return await handleToken(method, body);
+				if (pathname === "/api/usage-stats/platform/apikey") return await handleApiKey(method, body);
 				if (pathname === "/api/usage-stats/platform/sync") return await handleSync(method);
 				if (pathname === "/api/usage-stats/platform") return await handlePlatform(search);
 				return { ok: false, error: "not-found" };

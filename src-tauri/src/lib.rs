@@ -46,8 +46,13 @@ const TOKEN_PROBE_SCRIPT: &str = r#"
 "#;
 
 pub struct SyncState {
+	/// True while a login round owns the window.
 	running: Mutex<bool>,
-	cancel: Mutex<bool>,
+	/// The round id that was cancelled (0 = none). A round only honours its own id,
+	/// so a late cancel from an older round cannot abort a newer one.
+	cancelled: Mutex<u64>,
+	/// Monotonic round counter: every start gets a fresh identity.
+	round: Mutex<u64>,
 	last: Mutex<Option<Value>>,
 }
 
@@ -55,8 +60,22 @@ impl SyncState {
 	fn new() -> Self {
 		Self {
 			running: Mutex::new(false),
-			cancel: Mutex::new(false),
+			cancelled: Mutex::new(0),
+			round: Mutex::new(0),
 			last: Mutex::new(None),
+		}
+	}
+
+	fn is_cancelled(&self, round: u64) -> bool {
+		*self.cancelled.lock().unwrap_or_else(|poison| poison.into_inner()) == round
+	}
+
+	fn finish(&self, round: u64) {
+		// Only the round that still owns the state may clear it: a stale worker must
+		// not stomp on the round a user already started after it.
+		let current = *self.round.lock().unwrap_or_else(|poison| poison.into_inner());
+		if current == round {
+			*self.running.lock().unwrap_or_else(|poison| poison.into_inner()) = false;
 		}
 	}
 }
@@ -83,36 +102,80 @@ fn save_token(state: tauri::State<'_, AppConfig>, token: String) -> Result<Value
 	if token.is_empty() {
 		return Err("token must be a non-empty string".into());
 	}
-	state.set_usage_token(token);
+	// The write can fail (read-only profile, locked file, full disk). Returning Err
+	// is the only honest answer: the old code reported success and lost the token.
+	state.set_usage_token(token).map_err(|error| error.to_string())?;
 	Ok(json!({ "ok": true, "configured": true, "source": "app" }))
 }
 
 #[tauri::command]
 fn clear_token(state: tauri::State<'_, AppConfig>) -> Result<Value, String> {
-	state.set_usage_token("");
+	state.set_usage_token("").map_err(|error| error.to_string())?;
 	Ok(json!({ "ok": true, "configured": false, "source": null }))
 }
 
 #[tauri::command]
+fn save_api_key(state: tauri::State<'_, AppConfig>, key: String) -> Result<Value, String> {
+	let key = key.trim();
+	if key.is_empty() {
+		return Err("API key must be a non-empty string".into());
+	}
+	state.set_api_key(key).map_err(|error| error.to_string())?;
+	Ok(json!({ "ok": true, "configured": true }))
+}
+
+#[tauri::command]
+fn clear_api_key(state: tauri::State<'_, AppConfig>) -> Result<Value, String> {
+	state.set_api_key("").map_err(|error| error.to_string())?;
+	Ok(json!({ "ok": true, "configured": false }))
+}
+
+/// Report a config that could not be used at startup (corrupt/unreadable file).
+#[tauri::command]
+fn config_warning(state: tauri::State<'_, AppConfig>) -> Value {
+	json!({ "ok": true, "warning": state.load_warning() })
+}
+
+/// A captured value must look like a platform session token before it is written:
+/// the probe reads `localStorage.userToken`, and an unrelated value there (or a
+/// half-written one) must not replace a working token.
+fn looks_like_usage_token(token: &str) -> bool {
+	(16..=4096).contains(&token.len())
+		&& token
+			.bytes()
+			.all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
+}
+
+#[tauri::command]
 async fn sync_start(app: tauri::AppHandle, state: tauri::State<'_, SyncState>) -> Result<Value, String> {
-	{
+	let round = {
 		let mut running = state.running.lock().unwrap_or_else(|poison| poison.into_inner());
 		if *running {
 			return Err("sync-already-running".into());
 		}
 		*running = true;
-	}
-	*state.cancel.lock().unwrap_or_else(|poison| poison.into_inner()) = false;
+		let mut counter = state.round.lock().unwrap_or_else(|poison| poison.into_inner());
+		*counter += 1;
+		*counter
+	};
 
 	let url = "https://platform.deepseek.com"
 		.parse::<tauri::Url>()
 		.map_err(|error| error.to_string())?;
-	let login = tauri::WebviewWindowBuilder::new(&app, "login", WebviewUrl::External(url))
+	// Build the window before promising anything: a failure must not leave `running`
+	// stuck at true (that used to wedge every later attempt until a restart).
+	let login = match tauri::WebviewWindowBuilder::new(&app, "login", WebviewUrl::External(url))
 		.inner_size(1100.0, 800.0)
 		.title("DeepSeek 登录")
 		.initialization_script(TOKEN_PROBE_SCRIPT)
 		.build()
-		.map_err(|error| error.to_string())?;
+	{
+		Ok(window) => window,
+		Err(error) => {
+			state.finish(round);
+			return Err(error.to_string());
+		}
+	};
 
 	// Poll the login window's title from a worker thread; when the probe
 	// reports the token, persist it and close the window.
@@ -121,17 +184,41 @@ async fn sync_start(app: tauri::AppHandle, state: tauri::State<'_, SyncState>) -
 	std::thread::spawn(move || {
 		let mut ok = false;
 		for _ in 0..600 {
-			if *app_task.state::<SyncState>().cancel.lock().unwrap_or_else(|poison| poison.into_inner()) {
+			let sync_state = app_task.state::<SyncState>();
+			if sync_state.is_cancelled(round) {
 				break;
 			}
 			std::thread::sleep(Duration::from_millis(800));
+			// Re-check after the sleep: cancelling during it must not still save.
+			if sync_state.is_cancelled(round) {
+				break;
+			}
 			match login_task.title() {
 				Ok(title) => {
 					if let Some(token) = title.strip_prefix("USG_TOKEN:") {
-						app_task.state::<AppConfig>().set_usage_token(token);
-						*app_task.state::<SyncState>().last.lock().unwrap_or_else(|poison| poison.into_inner()) =
-							Some(json!({ "ok": true, "source": "sync" }));
-						ok = true;
+						// The token rode in the window title (the only channel an external page
+						// can write to). Clear it immediately so it does not linger in the
+						// title, taskbar caption or Alt-Tab preview.
+						let _ = login_task.eval("document.title = 'DeepSeek 登录';");
+						// The cancel can land between the title read and the write.
+						if !sync_state.is_cancelled(round) {
+							if !looks_like_usage_token(token) {
+								*sync_state.last.lock().unwrap_or_else(|poison| poison.into_inner()) =
+									Some(json!({ "ok": false, "message": "token-invalid-shape" }));
+							} else {
+								match app_task.state::<AppConfig>().set_usage_token(token) {
+									Ok(()) => {
+										*sync_state.last.lock().unwrap_or_else(|poison| poison.into_inner()) =
+											Some(json!({ "ok": true, "source": "sync" }));
+										ok = true;
+									}
+									Err(error) => {
+										*sync_state.last.lock().unwrap_or_else(|poison| poison.into_inner()) =
+											Some(json!({ "ok": false, "message": format!("save-failed: {error}") }));
+									}
+								}
+							}
+						}
 						break;
 					}
 				}
@@ -141,18 +228,20 @@ async fn sync_start(app: tauri::AppHandle, state: tauri::State<'_, SyncState>) -
 		let _ = login_task.close();
 		{
 			let sync_state = app_task.state::<SyncState>();
-			if !ok {
-				let canceled = *sync_state.cancel.lock().unwrap_or_else(|poison| poison.into_inner());
-				if !canceled {
-					*sync_state.last.lock().unwrap_or_else(|poison| poison.into_inner()) =
-						Some(json!({ "ok": false, "message": "auth-not-completed" }));
-				}
+			let cancelled = sync_state.is_cancelled(round);
+			if !ok && !cancelled {
+				*sync_state.last.lock().unwrap_or_else(|poison| poison.into_inner()) =
+					Some(json!({ "ok": false, "message": "auth-not-completed" }));
 			}
-			*sync_state.running.lock().unwrap_or_else(|poison| poison.into_inner()) = false;
+			if cancelled {
+				*sync_state.last.lock().unwrap_or_else(|poison| poison.into_inner()) =
+					Some(json!({ "ok": false, "message": "cancelled" }));
+			}
+			sync_state.finish(round);
 		}
 	});
 
-	Ok(json!({ "ok": true, "opened": true, "running": true }))
+	Ok(json!({ "ok": true, "opened": true, "running": true, "round": round }))
 }
 
 #[tauri::command]
@@ -164,14 +253,23 @@ fn sync_status(state: tauri::State<'_, SyncState>) -> Value {
 
 #[tauri::command]
 fn sync_cancel(state: tauri::State<'_, SyncState>) -> Value {
-	*state.cancel.lock().unwrap_or_else(|poison| poison.into_inner()) = true;
-	json!({ "ok": true, "running": false })
+	let round = *state.round.lock().unwrap_or_else(|poison| poison.into_inner());
+	if round > 0 {
+		*state.cancelled.lock().unwrap_or_else(|poison| poison.into_inner()) = round;
+	}
+	// Report the state that actually holds right now: the worker thread still owns
+	// `running` until it wakes up, and claiming otherwise made an immediate retry
+	// look like a fresh failure.
+	let running = *state.running.lock().unwrap_or_else(|poison| poison.into_inner());
+	json!({ "ok": true, "cancelled": round > 0, "running": running, "round": round })
 }
 
-/// Live tray tooltip: pushed by the WebView whenever platform data loads
-/// (no duplicate upstream requests on the Rust side).
+/// Live tray tooltip: pushed by the WebView whenever the CURRENT month loads
+/// (no duplicate upstream requests on the Rust side). `month_label` and
+/// `currency` come from the payload so a historical month can never be shown as
+/// "this month" (the renderer refuses to push those in the first place).
 #[tauri::command]
-fn update_tray_tooltip(today_tokens: u64, month_cost: f64) {
+fn update_tray_tooltip(today_tokens: u64, month_cost: f64, currency: Option<String>, month_label: Option<String>) {
 	let fmt = |n: u64| {
 		let digits = n.to_string();
 		let mut out = String::new();
@@ -181,10 +279,19 @@ fn update_tray_tooltip(today_tokens: u64, month_cost: f64) {
 		}
 		out
 	};
+	let symbol = match currency.as_deref() {
+		Some("USD") => "$",
+		Some("EUR") => "€",
+		_ => "¥",
+	};
+	let month_line = match month_label.as_deref().filter(|label| !label.is_empty()) {
+		Some(label) => format!("本月（{label}） {symbol}{:.2}", month_cost),
+		None => format!("本月 {symbol}{:.2}", month_cost),
+	};
 	tray::set_tip(&format!(
-		"DeepSeek 用量\n今日 {} Tokens\n本月 ¥{:.2}",
+		"DeepSeek 用量\n今日 {} Tokens\n{}",
 		fmt(today_tokens),
-		month_cost
+		month_line
 	));
 }
 
@@ -622,7 +729,12 @@ pub(crate) fn tray_show(app: &tauri::AppHandle) {
 
 pub(crate) fn tray_toggle_autostart(app: &tauri::AppHandle) -> bool {
 	let next = !app.state::<AppConfig>().autostart();
-	app.state::<AppConfig>().set_autostart(next);
+	// A failed write is logged, not swallowed silently: the menu check state follows
+	// the value that was actually stored.
+	let persisted = app.state::<AppConfig>().set_autostart(next).is_ok();
+	if !persisted {
+		log::warn!("tray: autostart preference could not be written to the config file");
+	}
 	let result = if next {
 		app.autolaunch().enable()
 	} else {
@@ -631,7 +743,7 @@ pub(crate) fn tray_toggle_autostart(app: &tauri::AppHandle) -> bool {
 	if let Err(error) = result {
 		log::warn!("tray: autostart switch failed: {error}");
 	}
-	next
+	persisted && next
 }
 
 /// 实时玻璃背景：勾选 = 持续抓屏（窗口对屏幕捕获隐身，截图里看不到）；
@@ -683,6 +795,9 @@ pub fn run() {
 			get_credentials,
 			save_token,
 			clear_token,
+			save_api_key,
+			clear_api_key,
+			config_warning,
 			sync_start,
 			sync_status,
 			sync_cancel,

@@ -732,6 +732,18 @@ window.__ModuleLoader__.load({
 			const [platformTotal, setPlatformTotal] = react.useState(null);
 			const [recentPlat, setRecentPlat] = react.useState(null);
 			const [platformError, setPlatformError] = react.useState(null);
+			// 平台数据自己的成功时间：金额/请求数是否新鲜看它，不看本机聚合的刷新时间。
+			const [platformOkAt, setPlatformOkAt] = react.useState(null);
+			// 凭据代次：保存 / 清除 / 同步换号时自增，账户相关的在途响应一律作废。
+			const credentialGenRef = react.useRef(0);
+			const totalSeqRef = react.useRef(0);
+			// 余额用的 API Key（报告 F12）：独立版只从自己的 config.json 读它，所以
+			// 必须在设置页给出入口，不能再让用户去编辑 ~/.dsh/.credentials.yaml。
+			const [apiKeyStatus, setApiKeyStatus] = react.useState(null);
+			const [apiKeyValue, setApiKeyValue] = react.useState("");
+			const [apiKeyMessage, setApiKeyMessage] = react.useState("");
+			const [apiKeyBusy, setApiKeyBusy] = react.useState(false);
+			const [configWarning, setConfigWarning] = react.useState("");
 			const [platformLoading, setPlatformLoading] = react.useState(false);
 			const [platformMonth, setPlatformMonth] = react.useState(() => currentMonthKey());
 			const [showSettings, setShowSettings] = react.useState(false);
@@ -967,7 +979,10 @@ window.__ModuleLoader__.load({
 						return;
 					}
 					setUsageStale(false);
-					setRefreshedAt(Date.now());
+					// 独立版的 /usage 是平台-only 的空聚合（永远是 days: []）。如果连它也
+					// 去推进"更新于"，那么断网时时间戳看起来仍然新鲜 —— 报告 F03 说的就是
+					// 这个：金额是旧的、时间却是新的。只有真的带回数据才更新时间。
+					if (Array.isArray(payload.days) && payload.days.length > 0) setRefreshedAt(payload.updatedAt ?? Date.now());
 				}).catch((error) => {
 					if (!mountedRef.current || !usageLoaderRef.current.isCurrent(seq)) return;
 					setUsageError(error instanceof Error ? error.message : String(error));
@@ -1004,8 +1019,10 @@ window.__ModuleLoader__.load({
 
 			const loadPlatform = react.useCallback((monthKey, force = false) => {
 				const seq = platformLoaderRef.current.start();
+				const gen = credentialGenRef.current;
 				setPlatformLoading(true);
-				setPlatformError(null);
+				// 不在请求开始时清错误：否则"展开明细→命中本地缓存"会把刚才的失败悄悄
+				// 擦掉，界面看起来像是又成功了。成功时才清。
 				const [year, month] = monthKey.split("-").map(Number);
 				if (!Number.isInteger(year) || !Number.isInteger(month)) {
 					setPlatformLoading(false);
@@ -1014,32 +1031,40 @@ window.__ModuleLoader__.load({
 				}
 				const query = `?month=${month}&year=${year}${force ? "&refresh=1" : ""}`;
 				return fetchJson(`/api/usage-stats/platform${query}`).then((payload) => {
-					if (!mountedRef.current || !platformLoaderRef.current.isCurrent(seq)) return;
+					if (!mountedRef.current || !platformLoaderRef.current.isCurrent(seq) || credentialGenRef.current !== gen) return;
 					if (payload.ok !== true) {
 						// Unconfigured usage token: keep the quiet state so the
 						// panel shows the configuration hint instead of an error.
 						if (payload.error === "no-credential") {
 							setPlatform(null);
 							setPlatformTotal(null);
+							setPlatformError(null);
 							return;
 						}
 						setPlatformError(payload.message ?? "platform usage fetch failed");
 						return;
 					}
 					setPlatform(payload);
+					setPlatformError(null);
+					setPlatformOkAt(payload.fetchedAt ?? Date.now());
 					setRefreshedAt(payload.fetchedAt ?? Date.now());
 				}).catch((error) => {
-					if (!mountedRef.current || !platformLoaderRef.current.isCurrent(seq)) return;
+					if (!mountedRef.current || !platformLoaderRef.current.isCurrent(seq) || credentialGenRef.current !== gen) return;
 					setPlatformError(error instanceof Error ? error.message : String(error));
 				}).finally(() => {
-					if (mountedRef.current && platformLoaderRef.current.isCurrent(seq)) setPlatformLoading(false);
+					if (mountedRef.current && platformLoaderRef.current.isCurrent(seq) && credentialGenRef.current === gen) setPlatformLoading(false);
 				});
 			}, []);
 
-			// 平台全部历史 token 合计（平台口径的“累计”）；月度回扫由服务端缓存。
+			// 平台全部历史 token 合计（平台口径的“累计”）；月度回扫由数据层缓存。
+			// 必须有自己的序号 + 凭据代次：累计最容易乱序覆盖（换号后旧响应后到会把
+			// 上一个账号的数字写回去）。
 			const loadPlatformTotal = react.useCallback((force = false) => {
+				const seq = ++totalSeqRef.current;
+				const gen = credentialGenRef.current;
 				return fetchJson(`/api/usage-stats/platform/total${force ? "?refresh=1" : ""}`).then((payload) => {
-					if (!mountedRef.current || payload?.ok !== true) return;
+					if (!mountedRef.current || totalSeqRef.current !== seq || credentialGenRef.current !== gen) return;
+					if (payload?.ok !== true) return;
 					setPlatformTotal(payload);
 				}).catch(() => { /* best-effort: 累计回退到本地全量 */ });
 			}, []);
@@ -1049,6 +1074,7 @@ window.__ModuleLoader__.load({
 			// 缓存 5 分钟，与热力图共享缓存）。平台数据不可用时回退本地会话。
 			const loadRecentPlatform = react.useCallback((force = false) => {
 				const seq = ++recentPlatSeqRef.current;
+				const gen = credentialGenRef.current;
 				const cutoff = dayKeyOf(new Date(Date.now() - 13 * 86400000));
 				const today = todayKey();
 				const monthKeys = [cutoff.slice(0, 7), today.slice(0, 7)].filter((key, index, all) => all.indexOf(key) === index);
@@ -1056,7 +1082,7 @@ window.__ModuleLoader__.load({
 					const [year, month] = key.split("-").map(Number);
 					return fetchJson(`/api/usage-stats/platform?month=${month}&year=${year}${force ? "&refresh=1" : ""}`).catch(() => null);
 				})).then((payloads) => {
-					if (!mountedRef.current || recentPlatSeqRef.current !== seq) return;
+					if (!mountedRef.current || recentPlatSeqRef.current !== seq || credentialGenRef.current !== gen) return;
 					const map = new Map();
 					for (const payload of payloads) {
 						if (payload?.ok !== true || !Array.isArray(payload.days)) continue;
@@ -1064,7 +1090,7 @@ window.__ModuleLoader__.load({
 					}
 					setRecentPlat(map.size > 0 ? map : null);
 				}).catch(() => {
-					if (mountedRef.current && recentPlatSeqRef.current === seq) setRecentPlat(null);
+					if (mountedRef.current && recentPlatSeqRef.current === seq && credentialGenRef.current === gen) setRecentPlat(null);
 				});
 			}, []);
 
@@ -1074,22 +1100,79 @@ window.__ModuleLoader__.load({
 			// 于是顶部总量涨了、按 API Key 与小时图还是旧值（报告实测新增请求 0 次）。
 			const loadDayDetail = react.useCallback((date, force = false) => {
 				const seq = ++dayDetailSeqRef.current;
+				const gen = credentialGenRef.current;
 				setDayDetailLoading(true);
 				return fetchJson(`/api/usage-stats/platform/day?date=${date}${force ? "&refresh=1" : ""}`).then((payload) => {
-					if (!mountedRef.current || dayDetailSeqRef.current !== seq) return;
+					if (!mountedRef.current || dayDetailSeqRef.current !== seq || credentialGenRef.current !== gen) return;
 					setDayDetail(payload?.ok === true ? payload : null);
 				}).catch(() => {
-					if (mountedRef.current && dayDetailSeqRef.current === seq) setDayDetail(null);
+					if (mountedRef.current && dayDetailSeqRef.current === seq && credentialGenRef.current === gen) setDayDetail(null);
 				}).finally(() => {
-					if (mountedRef.current && dayDetailSeqRef.current === seq) setDayDetailLoading(false);
+					if (mountedRef.current && dayDetailSeqRef.current === seq && credentialGenRef.current === gen) setDayDetailLoading(false);
 				});
 			}, []);
 
 			const loadTokenStatus = react.useCallback(() => {				fetchJson("/api/usage-stats/platform/token").then((payload) => {
 					if (!mountedRef.current || payload?.ok !== true) return;
-					setTokenStatus({ configured: payload.configured === true, source: payload.source ?? null });
+					setTokenStatus({
+						configured: payload.configured === true,
+						source: payload.source ?? null,
+						ref: payload.ref ?? null,
+						apiKeyConfigured: payload.apiKeyConfigured === true
+					});
 				}).catch(() => { /* status read is best-effort */ });
 			}, []);
+
+			/** GET the balance API key status (never the key itself). */
+			const loadApiKeyStatus = react.useCallback(() => {
+				fetchJson("/api/usage-stats/platform/apikey").then((payload) => {
+					if (!mountedRef.current || payload?.ok !== true) return;
+					setApiKeyStatus({ configured: payload.configured === true });
+				}).catch(() => { /* status read is best-effort */ });
+			}, []);
+
+			/** Save the balance API key through the Rust config (atomic, error-reporting). */
+			const saveApiKey = react.useCallback(() => {
+				setApiKeyBusy(true);
+				setApiKeyMessage(translate("apiKey.saving"));
+				fetch("/api/usage-stats/platform/apikey", {
+					method: "POST",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify({ key: apiKeyValue })
+				}).then((response) => response.json().catch(() => ({ ok: false, message: `HTTP ${response.status}` }))).then((payload) => {
+					if (!mountedRef.current) return;
+					if (payload?.ok !== true) {
+						setApiKeyMessage(translate("apiKey.saveFailed", { message: payload?.message ?? "" }));
+						return;
+					}
+					setApiKeyValue("");
+					setApiKeyStatus({ configured: true });
+					setApiKeyMessage(translate("apiKey.saved"));
+					loadAccount("deepseek-official", true);
+				}).catch((error) => {
+					if (mountedRef.current) setApiKeyMessage(translate("apiKey.saveFailed", { message: error instanceof Error ? error.message : String(error) }));
+				}).finally(() => {
+					if (mountedRef.current) setApiKeyBusy(false);
+				});
+			}, [apiKeyValue, loadAccount, translate]);
+
+			const clearApiKey = react.useCallback(() => {
+				setApiKeyBusy(true);
+				fetch("/api/usage-stats/platform/apikey", { method: "DELETE" }).then((response) => response.json().catch(() => ({ ok: false, message: `HTTP ${response.status}` }))).then((payload) => {
+					if (!mountedRef.current) return;
+					if (payload?.ok !== true) {
+						setApiKeyMessage(translate("apiKey.clearFailed", { message: payload?.message ?? "" }));
+						return;
+					}
+					setApiKeyStatus({ configured: false });
+					setApiKeyMessage(translate("apiKey.cleared"));
+					loadAccount("deepseek-official", true);
+				}).catch((error) => {
+					if (mountedRef.current) setApiKeyMessage(translate("apiKey.clearFailed", { message: error instanceof Error ? error.message : String(error) }));
+				}).finally(() => {
+					if (mountedRef.current) setApiKeyBusy(false);
+				});
+			}, [loadAccount, translate]);
 
 			/** POST a new usage token, then force-refresh the platform usage so the panel updates immediately. */
 			const saveToken = react.useCallback(() => {
@@ -1106,7 +1189,22 @@ window.__ModuleLoader__.load({
 						return;
 					}
 					setTokenInput("");
-					setTokenStatus({ configured: true, source: "stored" });
+					// 换号 = 换凭据代次：旧账号的在途响应一律作废，界面先清空再等新数据。
+					credentialGenRef.current += 1;
+					setPlatform(null);
+					setPlatformTotal(null);
+					setRecentPlat(null);
+					setPlatformError(null);
+					setPlatformOkAt(null);
+					dayDetailSeqRef.current += 1;
+					setDayDetail(null);
+					setDayDetailLoading(false);
+					setTokenStatus({
+						configured: payload.configured === true,
+						source: payload.source ?? "app",
+						ref: payload.ref ?? "DEEPSEEK_USAGE_TOKEN",
+						apiKeyConfigured: payload.apiKeyConfigured === true
+					});
 					setTokenJustSaved(true);
 					// 同步更新显示：保存后立即拉取最新平台用量与累计。日详情也要重拉 ——
 					// 换了凭据后它属于上一个账号（小时图与按 API Key 会串号）。
@@ -1130,13 +1228,16 @@ window.__ModuleLoader__.load({
 						setTokenMessage(translate("token.clearFailed", { message: payload?.message ?? "" }));
 						return;
 					}
-					setTokenStatus({ configured: false, source: null });
+					// 清除也是一次换号：凭据代次自增，在途的旧账号响应全部作废。
+					credentialGenRef.current += 1;
+					setTokenStatus({ configured: false, source: null, ref: "DEEPSEEK_USAGE_TOKEN", apiKeyConfigured: payload.apiKeyConfigured === true });
 					setTokenInput("");
 					setTokenMessage(translate("token.cleared"));
 					setPlatform(null);
 					setPlatformTotal(null);
 					setRecentPlat(null);
 					setPlatformError(null);
+					setPlatformOkAt(null);
 					// 日详情属于上一个凭据：立即作废，等新数据到来。
 					dayDetailSeqRef.current += 1;
 					setDayDetail(null);
@@ -1201,7 +1302,17 @@ window.__ModuleLoader__.load({
 							window.clearInterval(timer);
 							setSyncRunning(false);
 							if (statusPayload.last?.ok === true) {
-								setTokenStatus({ configured: true, source: "stored" });
+								// 同步捕获 = 换号：旧账号的在途响应作废，界面先清空。
+								credentialGenRef.current += 1;
+								setPlatform(null);
+								setPlatformTotal(null);
+								setRecentPlat(null);
+								setPlatformError(null);
+								setPlatformOkAt(null);
+								dayDetailSeqRef.current += 1;
+								setDayDetail(null);
+								setDayDetailLoading(false);
+								setTokenStatus({ configured: true, source: "app", ref: "DEEPSEEK_USAGE_TOKEN" });
 								setTokenMessage(translate("token.syncCaptured"));
 								setTokenJustSaved(true);
 								// 同步更新显示：捕获成功后立即拉取最新平台用量。累计与日详情
@@ -1284,6 +1395,16 @@ window.__ModuleLoader__.load({
 				loadPlatform(platformMonth);
 				loadPlatformTotal();
 				loadRecentPlatform();
+				loadTokenStatus();
+				loadApiKeyStatus();
+				// A config file that could not be parsed is reported once per launch: the
+				// user must know the app started from an empty config (F01).
+				const core = typeof window === "undefined" ? null : window.__TAURI__?.core;
+				if (core !== void 0 && core !== null) {
+					core.invoke("config_warning").then((payload) => {
+						if (mountedRef.current && typeof payload?.warning === "string" && payload.warning !== "") setConfigWarning(payload.warning);
+					}).catch(() => {});
+				}
 				// Page-load-only warm-up: the loaders are stable callbacks, so this runs
 				// exactly once per page load and never on a month change.
 			}, []);
@@ -1405,13 +1526,19 @@ window.__ModuleLoader__.load({
 			const bandDayTokens = todayKey().startsWith(platformMonth) ? (heatDayMap.get(todayKey())?.tokens ?? 0) : 0;
 			const bandMonthTokens = react.useMemo(() => tokensForMonth([...heatDayMap.values()], platformMonth), [heatDayMap, platformMonth]);
 			const bandTotalTokens = platformTotal !== null && typeof platformTotal.total === "number" ? platformTotal.total : (stats?.total ?? 0);
-			// 累计是有界窗口（最多回扫 24 个月）：服务端说 limited 时不能用"累计"这个词，
-			// 并把已扫描区间一并说明，数字与口径都站得住。
+			// 累计是有界窗口（最多回扫 24 个月）。口径留在数据里，界面不再挂常驻文案：
+			// 「累计（已查询区间）」与「统计范围 …」两行被用户认为突兀，已去掉；说明收进
+			// 「累计」格的悬停提示（title），需要时仍能看到。
 			const totalLimited = platformTotal !== null && platformTotal.limited === true;
-			const totalTokensLabel = totalLimited ? translate("usage.totalTokensLimited") : void 0;
-			const scopeNote = totalLimited && platformTotal?.range?.from && platformTotal?.range?.to
-				? translate("usage.scope", { from: platformTotal.range.from, to: platformTotal.range.to })
-				: null;
+			const totalPartial = platformTotal !== null && platformTotal.partial === true;
+			const totalScopeHint = [
+				totalLimited && platformTotal?.range?.from && platformTotal?.range?.to
+					? translate("usage.scope", { from: platformTotal.range.from, to: platformTotal.range.to })
+					: null,
+				totalPartial
+					? translate("usage.totalPartialNote", { since: platformTotal?.oldest ?? platformTotal?.range?.from ?? "—" })
+					: null
+			].filter((part) => part !== null && part !== void 0).join(" · ") || null;
 			// 费用响应结构无效（HTTP 200 但 biz_data 缺失）时服务端返回 costAvailable:false：
 			// 此时所有金额位显示「—」，绝不显示 ¥0.00 —— 那等于宣称这些用量免费。
 			const costKnown = platform === null || platform.costAvailable !== false;
@@ -1647,6 +1774,14 @@ window.__ModuleLoader__.load({
 										onStartSync: startSync,
 										onStopSync: stopSync,
 										onBack: () => setShowSettings(false),
+										apiKeyStatus,
+										apiKeyBusy,
+										apiKeyMessage,
+										apiKeyValue,
+										onApiKeyChange: setApiKeyValue,
+										onApiKeySave: saveApiKey,
+										onApiKeyClear: clearApiKey,
+										configWarning,
 										liveBackdrop,
 										onToggleLiveBackdrop: toggleLiveBackdrop,
 										backdropAvailable,
@@ -1673,6 +1808,7 @@ window.__ModuleLoader__.load({
 														platform,
 														platformLoading,
 														platformError,
+														platformOkAt,
 														month: platformMonth,
 														onMonthChange: setPlatformMonth,
 														onRetry: () => loadAccount("deepseek-official", true),
@@ -1687,9 +1823,8 @@ window.__ModuleLoader__.load({
 														// 数字跟着视图月走，标签也要跟着：翻到 7 月时"本月"就不再成立。
 														monthBandLabel: viewingCurrentMonth ? void 0 : monthBandLabel,
 														localTotalTokens: bandTotalTokens,
-														// 累计是有界窗口时连标签一起换掉，并说明扫描区间。
-														totalTokensLabel,
-														scopeNote,
+														// 累计口径只做悬停说明，不再占一行版面。
+														totalScopeHint,
 														costKnown,
 														translate
 													})
@@ -2664,16 +2799,29 @@ window.__ModuleLoader__.load({
 		const PRICE_BJ_OFFSET = 8 * 3600000;
 		const PRICE_ERA_PEAK = Date.UTC(2026, 7, 17) - PRICE_BJ_OFFSET;
 		const PRICE_ERA_WEEKEND_IDLE = Date.UTC(2026, 7, 23) - PRICE_BJ_OFFSET;
+		// 节假日表是**数据**，不是写死在判断里的日期（报告 F10）：加一年只需要往这张表
+		// 里补日期并把年份写进 PRICE_HOLIDAY_COVERAGE。表里没有的年份不猜 —— 徽标退回
+		// "按高峰计"并在提示里说清楚，宁可保守也不要凭空说成空闲价。
+		const PRICE_HOLIDAY_COVERAGE = [2026, 2027];
+		const PRICE_HOLIDAY_UPDATED = "2026-10-31";
 		const PRICE_HOLIDAYS = new Set([
+			// 2026 年（国务院办公厅 2026 年放假安排）
 			"2026-09-25", "2026-09-26", "2026-09-27",
 			"2026-10-01", "2026-10-02", "2026-10-03", "2026-10-04",
-			"2026-10-05", "2026-10-06", "2026-10-07"
+			"2026-10-05", "2026-10-06", "2026-10-07",
+			// 2027 年：元旦为法定节假日；春节等调休在公布后补进这张表
+			"2027-01-01"
 		]);
 		const PRICE_PEAK_WINDOWS = [[540, 720], [840, 1080]];
 		const PRICE_TABLE = {
 			flash: { peak: { hit: 0.04, miss: 2, out: 8 }, idle: { hit: 0.02, miss: 1, out: 4 } },
 			pro: { peak: { hit: 0.3, miss: 9, out: 27 }, idle: { hit: 0.15, miss: 4.5, out: 13.5 } }
 		};
+
+		/** 该年份的节假日是否在已验证覆盖范围内。 */
+		function priceHolidayCovered(year) {
+			return PRICE_HOLIDAY_COVERAGE.includes(year);
+		}
 
 		function priceBeijingParts(timeMs) {
 			const shifted = new Date(timeMs + PRICE_BJ_OFFSET);
@@ -2696,7 +2844,8 @@ window.__ModuleLoader__.load({
 			if (!(timeMs >= PRICE_ERA_PEAK)) return false;
 			const parts = priceBeijingParts(timeMs);
 			if (parts.weekday === 0 || parts.weekday === 6) return !(timeMs >= PRICE_ERA_WEEKEND_IDLE);
-			if (PRICE_HOLIDAYS.has(priceDayKey(parts))) return false;
+			// 未覆盖的年份不下"节假日空闲"的结论：按高峰算并让徽标提示补表。
+			if (priceHolidayCovered(parts.year) && PRICE_HOLIDAYS.has(priceDayKey(parts))) return false;
 			const minutes = parts.hour * 60 + parts.minute;
 			return PRICE_PEAK_WINDOWS.some(([start, end]) => minutes >= start && minutes < end);
 		}
@@ -2723,11 +2872,12 @@ window.__ModuleLoader__.load({
 		/** 当前计费时段描述：`period` 为 peak / idle / flat，`next` 是下一次翻转。 */
 		function pricePeriodOf(nowMs) {
 			const now = Number.isFinite(nowMs) ? nowMs : Date.now();
-			if (!(now >= PRICE_ERA_PEAK)) return { now, period: "flat", reason: "flat", next: null, windows: [], prices: null };
+			if (!(now >= PRICE_ERA_PEAK)) return { now, period: "flat", reason: "flat", next: null, windows: [], prices: null, covered: true };
 			const peak = priceIsPeakAt(now);
 			const parts = priceBeijingParts(now);
 			const weekend = parts.weekday === 0 || parts.weekday === 6;
-			const holiday = !weekend && PRICE_HOLIDAYS.has(priceDayKey(parts));
+			const covered = priceHolidayCovered(parts.year);
+			const holiday = !weekend && covered && PRICE_HOLIDAYS.has(priceDayKey(parts));
 			const period = peak ? "peak" : "idle";
 			const flip = priceNextFlip(now);
 			return {
@@ -2736,7 +2886,9 @@ window.__ModuleLoader__.load({
 				reason: peak ? "peak-window" : weekend ? "weekend" : holiday ? "holiday" : "off-window",
 				next: flip === null ? null : { at: flip, period: priceIsPeakAt(flip) ? "peak" : "idle" },
 				windows: weekend || holiday ? [] : [{ start: "09:00", end: "12:00" }, { start: "14:00", end: "18:00" }],
-				prices: { flash: PRICE_TABLE.flash[period], pro: PRICE_TABLE.pro[period] }
+				prices: { flash: PRICE_TABLE.flash[period], pro: PRICE_TABLE.pro[period] },
+				// 该年份是否已覆盖：没覆盖时徽标要说明"按高峰计，节假日表待更新"。
+				covered
 			};
 		}
 
@@ -2773,7 +2925,10 @@ window.__ModuleLoader__.load({
 				translate("price.title"),
 				windows === null ? null : translate("price.windows", { windows }),
 				info.reason === "weekend" ? translate("price.weekendIdle") : info.reason === "holiday" ? translate("price.holidayIdle") : null,
-				translate("price.discount")
+				translate("price.discount"),
+				// 覆盖范围要能看到：没覆盖的年份只按高峰/周末算，不能静默当成已支持。
+				translate("price.calendarCoverage", { years: PRICE_HOLIDAY_COVERAGE.join("–"), updated: PRICE_HOLIDAY_UPDATED }),
+				info.covered === true ? null : translate("price.calendarStale")
 			].filter((part) => part !== null && part !== void 0 && part !== "").join(" · ");
 			return react_jsx_runtime.jsxs("span", {
 				className: S.priceBadge,
@@ -2788,7 +2943,7 @@ window.__ModuleLoader__.load({
 		}
 		// #endregion
 
-		function DeepSeekAccountUsageCard({ provider, account, accountLoading, accountError, platform, platformLoading, platformError, month, onMonthChange, onRetry, onRetryPlatform, onConfigure, translate, localDayTokens = 0, localMonthTokens = 0, localTotalTokens = 0, monthBandLabel, totalTokensLabel, scopeNote = null, costKnown = true }) {
+		function DeepSeekAccountUsageCard({ provider, account, accountLoading, accountError, platform, platformLoading, platformError, platformOkAt = null, month, onMonthChange, onRetry, onRetryPlatform, onConfigure, translate, localDayTokens = 0, localMonthTokens = 0, localTotalTokens = 0, monthBandLabel, totalScopeHint = null, costKnown = true }) {
 			const mode = account?.mode ?? provider.accountMode ?? "balance";
 			const status = accountLoading && account === null ? "loading" : account?.status ?? "unavailable";
 			const statusText = status === "loading" ? translate("account.status.loading")
@@ -2831,7 +2986,7 @@ window.__ModuleLoader__.load({
 							react_jsx_runtime.jsxs("div", {
 								className: `${S.statsRow} ${S.bandCompact}`,
 								children: [
-									react_jsx_runtime.jsxs("div", { className: S.stat, "data-kind": "token", children: [react_jsx_runtime.jsx("span", { className: S.statValue, children: fmt(localTotalTokens) }), react_jsx_runtime.jsx("span", { className: S.statLabel, children: totalTokensLabel ?? translate("usage.totalTokens") })] }),
+									react_jsx_runtime.jsxs("div", { className: S.stat, "data-kind": "token", title: totalScopeHint ?? void 0, children: [react_jsx_runtime.jsx("span", { className: S.statValue, children: fmt(localTotalTokens) }), react_jsx_runtime.jsx("span", { className: S.statLabel, children: translate("usage.totalTokens") })] }),
 									react_jsx_runtime.jsxs("div", { className: S.stat, "data-kind": "request", children: [react_jsx_runtime.jsx("span", { className: S.statValue, children: fmt(requests) }), react_jsx_runtime.jsx("span", { className: S.statLabel, children: translate("platform.monthRequests") })] }),
 									react_jsx_runtime.jsxs("div", { className: S.stat, "data-kind": "cost", children: [react_jsx_runtime.jsx("span", { className: S.statValue, children: costKnown ? fmtCurrency(platform?.monthCost, platform?.currency ?? "CNY") : "—" }), react_jsx_runtime.jsx("span", { className: S.statLabel, children: translate("platform.monthCost") })] })
 								]
@@ -2844,10 +2999,22 @@ window.__ModuleLoader__.load({
 									react_jsx_runtime.jsxs("div", { className: S.stat, "data-kind": "token", children: [react_jsx_runtime.jsx("span", { className: S.statValue, children: localDayTokens === null ? "—" : fmt(localDayTokens) }), react_jsx_runtime.jsx("span", { className: S.statLabel, children: translate("usage.todayTokens") })] })
 								]
 							}),
+							// 只在**失败**时多说一句：金额/请求数仍是上次成功的结果，别把它当成刚更新的
+							// 数字。健康状态下不加常驻文案 —— 多一行"平台数据更新于…"在卡片底部显得
+							// 突兀（用户反馈），新鲜度交给面板底部那句"更新于"。
+							platformError === null ? null : react_jsx_runtime.jsx("p", {
+								className: S.note,
+								"data-platform-state": "error",
+								children: translate("platform.staleNote", {
+									message: platformError,
+									time: platformOkAt === null
+										? translate("platform.neverLoaded")
+										: new Date(platformOkAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+								})
+							}),
 							// 费用缺失与统计范围都写清楚：前者不能静默显示成 ¥0.00（等于宣称免费），
-							// 后者让「近 24 个月」这个标签有据可查。
+							// 后者让「已查询区间」这个标签有据可查。
 							costKnown ? null : react_jsx_runtime.jsx("p", { className: S.note, children: translate("platform.costUnavailable") }),
-							scopeNote === null ? null : react_jsx_runtime.jsx("p", { className: S.note, children: scopeNote })
 						]
 					})
 				]
@@ -2918,8 +3085,9 @@ window.__ModuleLoader__.load({
 		 * login automatically; method 2 is the manual paste fallback. Saving
 		 * or capturing immediately refreshes the platform usage data below.
 		 */
-		function TokenSettingsView({ status, busy, message, value, onChange, onPaste, onSave, onClear, syncRunning, onStartSync, onStopSync, onBack, liveBackdrop, onToggleLiveBackdrop, backdropAvailable, translate }) {
+		function TokenSettingsView({ status, busy, message, value, onChange, onPaste, onSave, onClear, syncRunning, onStartSync, onStopSync, onBack, apiKeyStatus = null, apiKeyBusy = false, apiKeyMessage = "", apiKeyValue = "", onApiKeyChange = () => {}, onApiKeySave = () => {}, onApiKeyClear = () => {}, configWarning = "", liveBackdrop, onToggleLiveBackdrop, backdropAvailable, translate }) {
 			const configured = status?.configured === true;
+			const apiKeyConfigured = apiKeyStatus?.configured === true;
 			// 版本号由 Rust 侧提供（env!("CARGO_PKG_VERSION")），设置页底部显示一次。
 			// 宿主插件里没有这个命令，取不到就不显示。
 			const [version, setVersion] = react.useState("");
@@ -3022,6 +3190,58 @@ window.__ModuleLoader__.load({
 							react_jsx_runtime.jsx("p", { className: S.note, children: value.trim() !== "" ? translate("token.unsaved") : (message !== "" ? message : (configured ? translate("token.configured", { source: status?.source === "credential" ? translate("token.sourceCredential") : translate("token.sourceStored") }) : translate("token.notConfigured"))) })
 						]
 					}),
+					// 余额的 API Key 入口（报告 F12）：这张卡原来只提示"去编辑
+					// ~/.dsh/.credentials.yaml"，而独立版从来不读那个文件，等于把用户
+					// 引到死路。现在改成真实可用的入口。
+					react_jsx_runtime.jsxs("section", {
+						className: S.section,
+						children: [
+							react_jsx_runtime.jsx("h3", { className: S.sectionTitle, children: translate("apiKey.title") }),
+							react_jsx_runtime.jsx("p", { className: S.note, children: translate("apiKey.description") }),
+							react_jsx_runtime.jsx("input", {
+								className: S.settingsInput,
+								type: "password",
+								value: apiKeyValue,
+								"data-dirty": apiKeyValue.trim() === "" ? void 0 : true,
+								"aria-label": translate("apiKey.title"),
+								placeholder: apiKeyConfigured ? translate("apiKey.configuredPlaceholder") : translate("apiKey.placeholder"),
+								onChange: (event) => onApiKeyChange(event.target.value)
+							}),
+							react_jsx_runtime.jsxs("div", {
+								className: S.settingsActions,
+								children: [
+									react_jsx_runtime.jsx("button", {
+										type: "button",
+										className: S.settingsButton,
+										"data-kind": "primary",
+										onClick: onApiKeySave,
+										disabled: apiKeyBusy || apiKeyValue.trim() === "",
+										children: translate("apiKey.save")
+									}),
+									react_jsx_runtime.jsx("button", {
+										type: "button",
+										className: S.settingsButton,
+										"data-kind": "danger",
+										onClick: onApiKeyClear,
+										disabled: apiKeyBusy || !apiKeyConfigured,
+										children: translate("apiKey.clear")
+									})
+								]
+							}),
+							react_jsx_runtime.jsx("p", {
+								className: S.note,
+								"data-apikey-state": apiKeyConfigured ? "ok" : "unset",
+								children: apiKeyMessage !== ""
+									? apiKeyMessage
+									: apiKeyConfigured ? translate("apiKey.configured") : translate("apiKey.notConfigured")
+							})
+						]
+					}),
+					configWarning === "" ? null : react_jsx_runtime.jsx("p", {
+						className: S.note,
+						"data-config-warning": "true",
+						children: translate("settings.configWarning", { message: configWarning })
+					}),
 					// 独立版专属：实时玻璃背景开关。开启时窗口对屏幕捕获隐身（截图/录屏
 					// 看不到它），换取逐帧跟手的玻璃背景；暂停后回到低频采样，可正常截图。
 					backdropAvailable ? react_jsx_runtime.jsxs("section", {
@@ -3053,6 +3273,12 @@ window.__ModuleLoader__.load({
 							})
 						]
 					}) : null,
+					// 节假日表覆盖范围写在设置页：徽标的"空闲价"结论依赖这张表。
+					react_jsx_runtime.jsx("p", {
+						className: S.note,
+						"data-price-calendar": "true",
+						children: translate("price.calendarCoverage", { years: PRICE_HOLIDAY_COVERAGE.join("–"), updated: PRICE_HOLIDAY_UPDATED })
+					}),
 					version === "" ? null : react_jsx_runtime.jsx("p", {
 						className: S.settingsVersion,
 						children: `${translate("settings.version")} v${version}`
@@ -3086,13 +3312,14 @@ window.__ModuleLoader__.load({
 			"balance.toppedUp": "充值余额",
 			"balance.granted": "赠送余额",
 			"balance.loading": "正在查询余额…",
-			"balance.noCredential": "未配置 {ref}（请编辑 ~/.dsh/.credentials.yaml）",
+			"balance.noCredential": "未配置 {ref}（在「设置 → API Key」中填写）",
 			"balance.error": "余额获取失败：{message}",
 			"usage.todayTokens": "今日 Tokens",
 			"usage.monthTokens": "本月 Tokens",
 			"usage.monthTokensFor": "{month} Tokens",
 			"usage.totalTokens": "累计 Tokens",
 			"usage.totalTokensLimited": "近 24 个月",
+			"usage.totalPartialNote": "平台更早月份不可查，累计自 {since} 起。",
 			"usage.scope": "统计范围 {from} – {to}",
 			"usage.partial": "会话列表读取失败，统计可能不完整（已保留上次结果）。",
 			"usage.error": "用量统计失败：{message}",
@@ -3115,7 +3342,9 @@ window.__ModuleLoader__.load({
 			"platform.title": "DeepSeek 平台用量",
 			"platform.modelsTitle": "平台模型明细",
 			"platform.error": "平台用量获取失败：{message}",
-			"platform.noCredential": "未配置 {ref}。登录 platform.deepseek.com 后打开控制台执行 JSON.parse(localStorage.userToken).value，将结果写入 ~/.dsh/.credentials.yaml。",
+			"platform.neverLoaded": "尚未成功加载",
+			"platform.staleNote": "平台数据更新失败：{message}（金额与请求数仍是 {time} 的结果）",
+			"platform.noCredential": "未配置 {ref}。在「设置 → 用量 Token」里点「网页登录同步」，或手动粘贴 Token。",
 			"platform.noData": "本月暂无用量数据。",
 			"platform.monthCost": "本月消费",
 			"platform.costUnavailable": "费用数据不可用（Token 数据不受影响）。",
@@ -3132,7 +3361,23 @@ window.__ModuleLoader__.load({
 			"price.windows": "高峰 {windows}",
 			"price.weekendIdle": "周末全天空闲",
 			"price.holidayIdle": "节假日全天空闲",
+			"price.calendarCoverage": "节假日表覆盖 {years}（更新于 {updated}）",
+			"price.calendarStale": "这一年不在节假日表内，按高峰价估算，需要更新表",
 			"settings.version": "版本",
+			"settings.configWarning": "配置未能读取：{message}",
+			"apiKey.title": "余额 API Key",
+			"apiKey.description": "只用于查询 api.deepseek.com 的余额，保存在本机配置文件里；与上面的用量 Token 不是同一个东西。",
+			"apiKey.placeholder": "粘贴 API Key（sk-…）",
+			"apiKey.configuredPlaceholder": "已配置，输入新的可替换",
+			"apiKey.save": "保存",
+			"apiKey.clear": "清除",
+			"apiKey.saving": "正在保存…",
+			"apiKey.saved": "已保存，正在重新查询余额。",
+			"apiKey.saveFailed": "保存失败：{message}",
+			"apiKey.cleared": "已清除 API Key。",
+			"apiKey.clearFailed": "清除失败：{message}",
+			"apiKey.configured": "已配置。",
+			"apiKey.notConfigured": "未配置 —— 余额与账户状态会显示为未配置。",
 			"platform.cacheHit": "缓存命中率",
 			"platform.hit": "缓存命中",
 			"platform.miss": "缓存未命中",
@@ -3220,13 +3465,14 @@ window.__ModuleLoader__.load({
 			"balance.toppedUp": "Topped up",
 			"balance.granted": "Granted",
 			"balance.loading": "Fetching balance…",
-			"balance.noCredential": "{ref} is not configured (edit ~/.dsh/.credentials.yaml)",
+			"balance.noCredential": "{ref} is not configured (fill it in Settings → API key)",
 			"balance.error": "Balance fetch failed: {message}",
 			"usage.todayTokens": "Today tokens",
 			"usage.monthTokens": "Month tokens",
 			"usage.monthTokensFor": "{month} tokens",
 			"usage.totalTokens": "All tokens",
 			"usage.totalTokensLimited": "Last 24 months",
+			"usage.totalPartialNote": "Older platform months are not readable; the total starts at {since}.",
 			"usage.scope": "Range {from} – {to}",
 			"usage.partial": "Session listing failed — these numbers may be incomplete (last result kept).",
 			"usage.error": "Usage aggregation failed: {message}",
@@ -3249,7 +3495,9 @@ window.__ModuleLoader__.load({
 			"platform.title": "DeepSeek platform usage",
 			"platform.modelsTitle": "Platform models",
 			"platform.error": "Platform usage failed: {message}",
-			"platform.noCredential": "{ref} is not configured. Sign in to platform.deepseek.com, run JSON.parse(localStorage.userToken).value in the console, and write the result to ~/.dsh/.credentials.yaml.",
+			"platform.neverLoaded": "never loaded",
+			"platform.staleNote": "Platform refresh failed: {message} (amounts and request counts are still the {time} result)",
+			"platform.noCredential": "{ref} is not configured. Use Settings → Usage token → “Sync via web login”, or paste a token manually.",
 			"platform.noData": "No usage data for this month.",
 			"platform.monthCost": "This month",
 			"platform.costUnavailable": "Cost data unavailable (token figures are unaffected).",
@@ -3266,7 +3514,23 @@ window.__ModuleLoader__.load({
 			"price.windows": "Peak {windows}",
 			"price.weekendIdle": "Weekends are idle all day",
 			"price.holidayIdle": "Holidays are idle all day",
+			"price.calendarCoverage": "Holiday table covers {years} (updated {updated})",
+			"price.calendarStale": "This year is outside the holiday table — peak pricing assumed; update the table",
 			"settings.version": "Version",
+			"settings.configWarning": "The config could not be read: {message}",
+			"apiKey.title": "Balance API key",
+			"apiKey.description": "Only used to query the balance on api.deepseek.com; stored in this app's own config file. Not the same as the usage token above.",
+			"apiKey.placeholder": "Paste the API key (sk-…)",
+			"apiKey.configuredPlaceholder": "Configured — enter a new key to replace it",
+			"apiKey.save": "Save",
+			"apiKey.clear": "Clear",
+			"apiKey.saving": "Saving…",
+			"apiKey.saved": "Saved — re-querying the balance.",
+			"apiKey.saveFailed": "Save failed: {message}",
+			"apiKey.cleared": "API key cleared.",
+			"apiKey.clearFailed": "Clear failed: {message}",
+			"apiKey.configured": "Configured.",
+			"apiKey.notConfigured": "Not configured — balance and account status stay unavailable.",
 			"platform.cacheHit": "Cache hit rate",
 			"platform.hit": "Cache hit",
 			"platform.miss": "Cache miss",

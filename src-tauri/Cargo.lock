@@ -4636,9 +4636,10 @@ dependencies = [
 
 [[package]]
 name = "usage-stats-app"
-version = "0.4.5"
+version = "0.4.7"
 dependencies = [
  "dirs 6.0.0",
+ "log",
  "serde",
  "serde_json",
  "tauri",

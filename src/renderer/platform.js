@@ -537,15 +537,18 @@ export async function fetchPlatformMonthTokenSum(token, options = {}) {
  * no usage, never that earlier months had none — so the scan covers the whole
  * `maxMonths` window (default 24) unless `budgetMs` runs out first.
  *
- * Because the window is bounded, the result is reported as a scanned range plus
- * a `limited` flag rather than as an unconditional lifetime total: `limited` is
- * true whenever the oldest month with usage is the oldest month scanned (there
- * may be more history below the window) or when no usage was found at all.
- * Callers must label a limited result accordingly (e.g. "last 24 months").
- * @returns `{ total, months, oldest, newest, scannedMonths, range: { from, to }, limited }`
+ * The result is never a lifetime total unless the platform itself proved the
+ * account's data floor (report F05/F06): a scan that ran out of window, budget or
+ * luck keeps the months it read and reports `limited`, and a month that fails
+ * mid-walk no longer throws away the months already summed.
+ * @returns `{ total, months, oldest, newest, scannedMonths, range: { from, to },
+ *   limited, limitedReason, partial, stoppedAt, partialReason, complete }`
  *   — `months` counts months with usage; `oldest`/`newest` are the `YYYY-MM` of
  *   the first/last month with usage (null when none); `range` is the scanned
- *   window, newest first.
+ *   window, newest first; `limitedReason` is `null` only for an authoritative
+ *   end, else `"window" | "budget" | "upstream"`; `partial` reports a walk that
+ *   stopped on an unreadable month; `complete` is true only for an authoritative
+ *   end.
  */
 export async function fetchPlatformCumulativeTokenTotal(token, options = {}) {
 	const start = normalizeMonthYear(options.month, options.year, options.now ?? new Date());
@@ -556,9 +559,28 @@ export async function fetchPlatformCumulativeTokenTotal(token, options = {}) {
 	const monthTotal = typeof options.monthTotal === "function" ? options.monthTotal : null;
 	const deadline = Date.now() + budgetMs;
 	const seen = [];
+	let stoppedAt = null;
+	let stoppedReason = null;
+	let budgetExceeded = false;
 	for (let i = 0; i < maxMonths; i += 1) {
-		if (i > 0 && Date.now() > deadline) break; // scan budget spent — report what we have, flagged limited
-		const total = monthTotal !== null ? await monthTotal(month, year) : await fetchPlatformMonthTokenSum(token, { ...options, month, year });
+		if (i > 0 && Date.now() > deadline) {
+			budgetExceeded = true; // scan budget spent — report what we have, flagged limited
+			break;
+		}
+		let total;
+		try {
+			total = monthTotal !== null ? await monthTotal(month, year) : await fetchPlatformMonthTokenSum(token, { ...options, month, year });
+		} catch (error) {
+			const status = error?.providerStatus ?? "failed";
+			// A credential problem is not "some months are missing": it must surface as
+			// the credential error the panel knows how to render.
+			if (status === "unauthorized" || status === "not-configured") throw error;
+			// Everything else keeps the months already read and reports the stop, so one
+			// bad month no longer discards the whole scan (report F06).
+			stoppedAt = `${year}-${String(month).padStart(2, "0")}`;
+			stoppedReason = status;
+			break;
+		}
 		seen.push({ year, month, total });
 		if (month === 1) {
 			month = 12;
@@ -570,7 +592,14 @@ export async function fetchPlatformCumulativeTokenTotal(token, options = {}) {
 	const withUsage = seen.filter((entry) => entry.total > 0);
 	const oldest = withUsage.length > 0 ? withUsage[withUsage.length - 1] : null;
 	const monthKeyOf = (entry) => `${entry.year}-${String(entry.month).padStart(2, "0")}`;
-	const oldestIndex = oldest === null ? -1 : seen.indexOf(oldest);
+	const authoritativeStop = stoppedAt !== null && (stoppedReason === "invalid-response" || stoppedReason === "unsupported");
+	const limitedReason = authoritativeStop
+		? null
+		: stoppedAt !== null
+			? "upstream"
+			: budgetExceeded
+				? "budget"
+				: "window";
 	return {
 		total: withUsage.reduce((sum, entry) => sum + entry.total, 0),
 		months: withUsage.length,
@@ -581,7 +610,12 @@ export async function fetchPlatformCumulativeTokenTotal(token, options = {}) {
 			from: seen.length > 0 ? monthKeyOf(seen[seen.length - 1]) : null,
 			to: monthKeyOf(seen[0] ?? { year: start.year, month: start.month })
 		},
-		limited: oldestIndex === -1 || oldestIndex === seen.length - 1
+		limited: !authoritativeStop,
+		limitedReason,
+		partial: stoppedAt !== null,
+		stoppedAt,
+		partialReason: stoppedReason,
+		complete: authoritativeStop
 	};
 }
 
