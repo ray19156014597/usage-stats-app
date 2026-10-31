@@ -136,6 +136,16 @@ window.__ModuleLoader__.load({
 			".usg_balanceRows{color:var(--dsw-alias-label-secondary);flex-direction:column;gap:3px;font-size:12px;line-height:18px;display:flex}",
 			".usg_balanceRowsCompact{color:var(--dsw-alias-label-caption);flex-wrap:wrap;gap:2px 12px;font-size:11px;line-height:16px;font-variant-numeric:tabular-nums;display:flex}",
 			".usg_balanceRow{justify-content:space-between;display:flex}",
+			// 计费时段：余额行右侧的**纯文本**徽标（圆点 + 时段 + 倒计时），
+			// 不加底框、不换行，与左侧「可用余额」说明同一层级，视觉上不抢金额。
+			".usg_priceBadge{margin-left:auto;align-self:baseline;display:inline-flex;align-items:center;gap:6px;color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px;font-variant-numeric:tabular-nums;font-feature-settings:\"tnum\";white-space:nowrap;flex:none}",
+			".usg_priceDot{width:6px;height:6px;border-radius:50%;background:var(--usg-cache);box-shadow:0 0 5px color-mix(in srgb,var(--usg-cache) 45%,transparent);flex:none;align-self:center}",
+			".usg_priceBadge[data-period=peak] .usg_priceDot{background:var(--usg-cost);box-shadow:0 0 5px color-mix(in srgb,var(--usg-cost) 50%,transparent)}",
+			".usg_priceBadge[data-period=flat] .usg_priceDot{background:var(--usg-token);box-shadow:none}",
+			".usg_priceBadgeText{color:var(--dsw-alias-label-secondary);font-weight:500;white-space:nowrap}",
+			".usg_priceBadgeNext{color:var(--dsw-alias-label-tertiary);white-space:nowrap}",
+			// 设置页底部的版本行：只做一行淡淡的说明，不抢任何控件。
+			".usg_settingsVersion{color:var(--dsw-alias-label-caption);margin:18px 0 2px;text-align:center;font-size:11px;line-height:16px;font-variant-numeric:tabular-nums;letter-spacing:.02em}",
 			// Cards — 比面板实一档的玻璃卡：保留品牌色淡染，靠 1px 内高光成形，不再二次模糊。
 			".usg_accountCard{--usg-providerAccent:#4D6BFE;box-sizing:border-box;position:relative;background-image:linear-gradient(150deg,color-mix(in srgb,var(--usg-providerAccent) 10%,transparent),transparent 52%);border-radius:12px;padding:12px 13px;display:flex;flex-direction:column;gap:10px}",
 			".usg_accountCard[data-provider=deepseek],.usg_accountCard[data-provider=deepseek-official]{--usg-providerAccent:#4D6BFE}",
@@ -360,6 +370,11 @@ window.__ModuleLoader__.load({
 			balanceRows: "usg_balanceRows",
 			balanceRowsCompact: "usg_balanceRowsCompact",
 			balanceRow: "usg_balanceRow",
+			priceBadge: "usg_priceBadge",
+			priceDot: "usg_priceDot",
+			priceBadgeText: "usg_priceBadgeText",
+			priceBadgeNext: "usg_priceBadgeNext",
+			settingsVersion: "usg_settingsVersion",
 			statsRow: "usg_statsRow",
 			statsBand: "usg_statsBand",
 			bandCompact: "usg_bandCompact",
@@ -1898,7 +1913,7 @@ window.__ModuleLoader__.load({
 		}
 
 		/** Balance body rendered inside the DeepSeek account card. */
-		function BalanceContent({ balance, state, message, translate, onRetry, compact }) {
+		function BalanceContent({ balance, state, message, translate, onRetry, compact, trailing = null }) {
 			if (state === "loading" || balance === null && state === "ok") return react_jsx_runtime.jsx("p", { className: S.balanceNote, children: translate("balance.loading") });
 			if (state === "unsupported") return react_jsx_runtime.jsx("p", { className: S.balanceNote, children: translate("balance.unsupported") });
 			if (state === "no-credential") return react_jsx_runtime.jsx("p", { className: S.balanceNote, children: translate("balance.noCredential", { ref: message ?? "" }) });
@@ -1924,7 +1939,10 @@ window.__ModuleLoader__.load({
 						"aria-live": "polite",
 						children: [
 							react_jsx_runtime.jsx("span", { className: S.balanceAmount, children: balance.unlimited ? "∞" : fmtCurrency(balance.remaining, balance.currency) }),
-							react_jsx_runtime.jsx("span", { className: S.accountPlan, children: translate("balance.remaining") })
+							react_jsx_runtime.jsx("span", { className: S.accountPlan, children: translate("balance.remaining") }),
+							// 余额行右侧的空白正好放"当前计费时段"：金额在左、时段在右，
+							// 不额外占一行高度（见 PricePeriodBadge）。
+							trailing
 						]
 					}),
 					// compact: 充值/赠送等明细行已删除（用户要求），只留可用余额。
@@ -2637,6 +2655,139 @@ window.__ModuleLoader__.load({
 		 * usage live in ONE card, separated by a hairline divider — one module,
 		 * one selectable provider, no duplicated module title.
 		 */
+		// #region 计费时段（高峰 / 空闲）
+		// 与插件同一套规则（插件 lib/cost.js + lib/price-period.js）：
+		//   · 2026-08-17 00:00（北京）起价格表分高峰/空闲，高峰窗口 09:00–12:00、14:00–18:00；
+		//   · 2026-08-23 00:00 起周末整日按空闲计；法定节假日同样整日空闲；
+		//   · 空闲价 = 高峰价的 5 折（Flash 0.01/0.5/2.0 对 0.02/1/4 的一半，Pro 同理）。
+		// 全部是纯函数，独立版没有宿主接口，所以本地算，不依赖后端路由。
+		const PRICE_BJ_OFFSET = 8 * 3600000;
+		const PRICE_ERA_PEAK = Date.UTC(2026, 7, 17) - PRICE_BJ_OFFSET;
+		const PRICE_ERA_WEEKEND_IDLE = Date.UTC(2026, 7, 23) - PRICE_BJ_OFFSET;
+		const PRICE_HOLIDAYS = new Set([
+			"2026-09-25", "2026-09-26", "2026-09-27",
+			"2026-10-01", "2026-10-02", "2026-10-03", "2026-10-04",
+			"2026-10-05", "2026-10-06", "2026-10-07"
+		]);
+		const PRICE_PEAK_WINDOWS = [[540, 720], [840, 1080]];
+		const PRICE_TABLE = {
+			flash: { peak: { hit: 0.04, miss: 2, out: 8 }, idle: { hit: 0.02, miss: 1, out: 4 } },
+			pro: { peak: { hit: 0.3, miss: 9, out: 27 }, idle: { hit: 0.15, miss: 4.5, out: 13.5 } }
+		};
+
+		function priceBeijingParts(timeMs) {
+			const shifted = new Date(timeMs + PRICE_BJ_OFFSET);
+			return {
+				year: shifted.getUTCFullYear(),
+				month: shifted.getUTCMonth() + 1,
+				day: shifted.getUTCDate(),
+				hour: shifted.getUTCHours(),
+				minute: shifted.getUTCMinutes(),
+				weekday: shifted.getUTCDay()
+			};
+		}
+
+		function priceDayKey(parts) {
+			return `${parts.year}-${String(parts.month).padStart(2, "0")}-${String(parts.day).padStart(2, "0")}`;
+		}
+
+		/** 该时刻是否按高峰价计费。 */
+		function priceIsPeakAt(timeMs) {
+			if (!(timeMs >= PRICE_ERA_PEAK)) return false;
+			const parts = priceBeijingParts(timeMs);
+			if (parts.weekday === 0 || parts.weekday === 6) return !(timeMs >= PRICE_ERA_WEEKEND_IDLE);
+			if (PRICE_HOLIDAYS.has(priceDayKey(parts))) return false;
+			const minutes = parts.hour * 60 + parts.minute;
+			return PRICE_PEAK_WINDOWS.some(([start, end]) => minutes >= start && minutes < end);
+		}
+
+		/** 下一次高峰↔空闲翻转的时刻：先按分钟扫 3 天，再按 6 小时跳到 21 天上限（命中后回扫到分钟）。 */
+		function priceNextFlip(timeMs) {
+			const current = priceIsPeakAt(timeMs);
+			for (let step = 1; step <= 3 * 24 * 60; step += 1) {
+				const at = timeMs + step * 60000;
+				if (priceIsPeakAt(at) !== current) return at;
+			}
+			for (let hours = 3 * 24 + 6; hours <= 21 * 24; hours += 6) {
+				const at = timeMs + hours * 3600000;
+				if (priceIsPeakAt(at) === current) continue;
+				for (let back = 6 * 60 - 1; back >= 0; back -= 1) {
+					const exact = at - back * 60000;
+					if (priceIsPeakAt(exact) !== current) return exact;
+				}
+				return at;
+			}
+			return null;
+		}
+
+		/** 当前计费时段描述：`period` 为 peak / idle / flat，`next` 是下一次翻转。 */
+		function pricePeriodOf(nowMs) {
+			const now = Number.isFinite(nowMs) ? nowMs : Date.now();
+			if (!(now >= PRICE_ERA_PEAK)) return { now, period: "flat", reason: "flat", next: null, windows: [], prices: null };
+			const peak = priceIsPeakAt(now);
+			const parts = priceBeijingParts(now);
+			const weekend = parts.weekday === 0 || parts.weekday === 6;
+			const holiday = !weekend && PRICE_HOLIDAYS.has(priceDayKey(parts));
+			const period = peak ? "peak" : "idle";
+			const flip = priceNextFlip(now);
+			return {
+				now,
+				period,
+				reason: peak ? "peak-window" : weekend ? "weekend" : holiday ? "holiday" : "off-window",
+				next: flip === null ? null : { at: flip, period: priceIsPeakAt(flip) ? "peak" : "idle" },
+				windows: weekend || holiday ? [] : [{ start: "09:00", end: "12:00" }, { start: "14:00", end: "18:00" }],
+				prices: { flash: PRICE_TABLE.flash[period], pro: PRICE_TABLE.pro[period] }
+			};
+		}
+
+		/** 倒计时文案：`2h13m` / `45m` / `1d3h`。 */
+		function formatPriceCountdown(ms) {
+			const total = Math.max(0, Math.round(ms / 60000));
+			const days = Math.floor(total / 1440);
+			const hours = Math.floor((total % 1440) / 60);
+			const minutes = total % 60;
+			if (days > 0) return hours === 0 ? `${days}d` : `${days}d${hours}h`;
+			if (hours > 0) return minutes === 0 ? `${hours}h` : `${hours}h${String(minutes).padStart(2, "0")}m`;
+			return `${minutes}m`;
+		}
+
+		/**
+		 * 余额行右侧的计费时段徽标：`● 高峰价 全额` / `3h12m 后转空闲`。
+		 * 每 15s 自走一次（不依赖数据轮询），跨过切换点后本地立即翻转。
+		 */
+		function PricePeriodBadge({ translate }) {
+			const [now, setNow] = react.useState(() => Date.now());
+			react.useEffect(() => {
+				const timer = window.setInterval(() => setNow(Date.now()), 15000);
+				return () => window.clearInterval(timer);
+			}, []);
+			const info = pricePeriodOf(now);
+			if (info === null || info.period === "flat") return null;
+			const peak = info.period === "peak";
+			const next = info.next;
+			const nextText = next === null || now >= next.at
+				? null
+				: translate(next.period === "peak" ? "price.untilPeak" : "price.untilIdle", { time: formatPriceCountdown(next.at - now) });
+			const windows = info.windows.length === 2 ? `${info.windows[0].start}–${info.windows[0].end}、${info.windows[1].start}–${info.windows[1].end}` : null;
+			const hint = [
+				translate("price.title"),
+				windows === null ? null : translate("price.windows", { windows }),
+				info.reason === "weekend" ? translate("price.weekendIdle") : info.reason === "holiday" ? translate("price.holidayIdle") : null,
+				translate("price.discount")
+			].filter((part) => part !== null && part !== void 0 && part !== "").join(" · ");
+			return react_jsx_runtime.jsxs("span", {
+				className: S.priceBadge,
+				"data-period": info.period,
+				title: hint,
+				children: [
+					react_jsx_runtime.jsx("i", { className: S.priceDot, "aria-hidden": true }),
+					react_jsx_runtime.jsx("span", { className: S.priceBadgeText, children: translate(peak ? "price.peak" : "price.idle") }),
+					nextText === null ? null : react_jsx_runtime.jsx("span", { className: S.priceBadgeNext, children: nextText })
+				]
+			});
+		}
+		// #endregion
+
 		function DeepSeekAccountUsageCard({ provider, account, accountLoading, accountError, platform, platformLoading, platformError, month, onMonthChange, onRetry, onRetryPlatform, onConfigure, translate, localDayTokens = 0, localMonthTokens = 0, localTotalTokens = 0, monthBandLabel, totalTokensLabel, scopeNote = null, costKnown = true }) {
 			const mode = account?.mode ?? provider.accountMode ?? "balance";
 			const status = accountLoading && account === null ? "loading" : account?.status ?? "unavailable";
@@ -2672,7 +2823,7 @@ window.__ModuleLoader__.load({
 							react_jsx_runtime.jsx("span", { className: S.accountStatus, "data-status": status, children: statusText })
 						]
 					}),
-					react_jsx_runtime.jsx(BalanceContent, { balance: account?.balance ?? null, state: balanceState, message: balanceMessage, translate, onRetry: onRetry, compact: true }),
+					react_jsx_runtime.jsx(BalanceContent, { balance: account?.balance ?? null, state: balanceState, message: balanceMessage, translate, onRetry: onRetry, compact: true, trailing: react_jsx_runtime.jsx(PricePeriodBadge, { translate }) }),
 					// 统一统计条带：两行固定 3+3（第一行平台消费/请求，第二行 Tokens），
 					// 每行等宽不换行，避免 4+2 式参差断行。
 					react_jsx_runtime.jsxs(react_jsx_runtime.Fragment, {
@@ -2769,6 +2920,18 @@ window.__ModuleLoader__.load({
 		 */
 		function TokenSettingsView({ status, busy, message, value, onChange, onPaste, onSave, onClear, syncRunning, onStartSync, onStopSync, onBack, liveBackdrop, onToggleLiveBackdrop, backdropAvailable, translate }) {
 			const configured = status?.configured === true;
+			// 版本号由 Rust 侧提供（env!("CARGO_PKG_VERSION")），设置页底部显示一次。
+			// 宿主插件里没有这个命令，取不到就不显示。
+			const [version, setVersion] = react.useState("");
+			react.useEffect(() => {
+				const core = typeof window === "undefined" ? null : window.__TAURI__?.core;
+				if (!core || typeof core.invoke !== "function") return void 0;
+				let alive = true;
+				core.invoke("app_version").then((result) => {
+					if (alive && typeof result === "string" && result !== "") setVersion(result);
+				}).catch(() => {});
+				return () => { alive = false; };
+			}, []);
 			return react_jsx_runtime.jsxs(react_jsx_runtime.Fragment, {
 				children: [
 					react_jsx_runtime.jsxs("div", {
@@ -2889,7 +3052,11 @@ window.__ModuleLoader__.load({
 								]
 							})
 						]
-					}) : null
+					}) : null,
+					version === "" ? null : react_jsx_runtime.jsx("p", {
+						className: S.settingsVersion,
+						children: `${translate("settings.version")} v${version}`
+					})
 				]
 			});
 		}
@@ -2955,6 +3122,17 @@ window.__ModuleLoader__.load({
 			"platform.todayCost": "今日消费",
 			"platform.requests": "API 请求",
 			"platform.monthRequests": "本月 API 请求",
+			"price.peak": "高峰价",
+			"price.idle": "空闲价",
+			"price.flat": "平价",
+			"price.discount": "空闲价为高峰价的 5 折",
+			"price.untilIdle": "{time} 后转空闲",
+			"price.untilPeak": "{time} 后转高峰",
+			"price.title": "当前计费时段（北京时间）",
+			"price.windows": "高峰 {windows}",
+			"price.weekendIdle": "周末全天空闲",
+			"price.holidayIdle": "节假日全天空闲",
+			"settings.version": "版本",
 			"platform.cacheHit": "缓存命中率",
 			"platform.hit": "缓存命中",
 			"platform.miss": "缓存未命中",
@@ -3078,6 +3256,17 @@ window.__ModuleLoader__.load({
 			"platform.todayCost": "Today",
 			"platform.requests": "API requests",
 			"platform.monthRequests": "Requests this month",
+			"price.peak": "Peak price",
+			"price.idle": "Idle price",
+			"price.flat": "Flat price",
+			"price.discount": "Idle price is 50% of the peak price",
+			"price.untilIdle": "Idle in {time}",
+			"price.untilPeak": "Peak in {time}",
+			"price.title": "Current billing window (Beijing time)",
+			"price.windows": "Peak {windows}",
+			"price.weekendIdle": "Weekends are idle all day",
+			"price.holidayIdle": "Holidays are idle all day",
+			"settings.version": "Version",
 			"platform.cacheHit": "Cache hit rate",
 			"platform.hit": "Cache hit",
 			"platform.miss": "Cache miss",

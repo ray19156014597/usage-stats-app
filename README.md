@@ -37,6 +37,30 @@
 - 窗口**不挂任何系统材质**（mica/acrylic）：系统材质是一整窗大小的 DWM 背板、不跟随页面动画，
   最小化时会和页面动画叠成两层；玻璃质感完全由抓屏画布 + 插件配方提供。
 
+## 计费时段徽标（高峰 / 空闲，v0.4.6）
+
+余额那一行的右侧原本是空白，现在放"当前按哪个价计费"的徽标（`PricePeriodBadge`，在 `src/renderer/client.js` 内）：
+
+- 规则与插件 `lib/cost.js` + `lib/price-period.js` 同一套：2026-08-17 起价格表分高峰/空闲，
+  高峰窗口为北京时间 **09:00–12:00、14:00–18:00**；2026-08-23 起**周末整日空闲**，
+  法定节假日同样整日空闲（内置 2026 表，离线可用）；**空闲价 = 高峰价的 5 折**。
+- 两行结构：`● 空闲价 · 5 折` / `1d15h 后转高峰`；空闲用青绿点、高峰用琥珀点（与面板语义色一致）。
+- 每 15s 自走一次，跨过切换点立刻翻转，不依赖数据轮询；悬停显示完整信息
+  （高峰窗口、周末/节假日说明、Flash 与 Pro 的 命中/未命中/输出 单价）。
+- 纯前端计算，独立版没有宿主接口，所以不新增 Rust 路由。
+
+## 托盘：原生 `Shell_NotifyIcon`（v0.4.6）
+
+Tauri 自带的 `TrayIconBuilder` 在本机（Windows 11 build 29526）会"build 成功但 Shell 里不落地"，
+错误还被吞掉。`src-tauri/src/tray.rs` 改成手写 Win32：独立线程 + 隐藏窗口 + 消息循环，
+`Shell_NotifyIconW(NIM_ADD)` 注册，左键显示面板、右键原生菜单（打开面板 / 开机自启 / 实时玻璃背景 / 退出），
+收到 `TaskbarCreated` 自动重新注册；每一步写日志（`NIM_ADD ok=… err=…`）。
+
+**安装位置有坑**：exe 放在 `E:\Apps` 树下时，`NIM_ADD` 一律返回 `err=5`（ACCESS_DENIED）、托盘不出现；
+同一份 exe 放到 `E:\Apps2`、`E:\DeepSeekUsage`、构建输出目录都正常。所以默认安装路径为 `E:\DeepSeekUsage`。
+
+`USG_CAPTURE_SAFE=1` 启动时把"实时玻璃背景"降级为跟手模式，方便对窗口本身截图/录屏。
+
 ## 致谢 / Credits
 
 - **工程路线**：参考 [Joyi-code/DeepSeekMonitorWindows](https://github.com/Joyi-code/DeepSeekMonitorWindows)

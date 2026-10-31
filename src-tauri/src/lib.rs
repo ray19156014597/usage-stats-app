@@ -8,14 +8,13 @@
 //! tauri-plugin-http with a scope allowlisting the two DeepSeek hosts.
 
 mod config;
+mod tray;
 
 use config::AppConfig;
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::sync::Mutex;
 use std::time::Duration;
-use tauri::menu::{CheckMenuItem, Menu, MenuItem};
-use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WindowEvent};
 use tauri_plugin_autostart::ManagerExt;
 
@@ -63,6 +62,12 @@ impl SyncState {
 }
 
 //#region commands
+
+/// 应用版本号（设置页底部展示，来自 Cargo.toml）。
+#[tauri::command]
+fn app_version() -> String {
+	env!("CARGO_PKG_VERSION").to_string()
+}
 
 #[tauri::command]
 fn get_credentials(state: tauri::State<'_, AppConfig>) -> Credentials {
@@ -166,23 +171,21 @@ fn sync_cancel(state: tauri::State<'_, SyncState>) -> Value {
 /// Live tray tooltip: pushed by the WebView whenever platform data loads
 /// (no duplicate upstream requests on the Rust side).
 #[tauri::command]
-fn update_tray_tooltip(app: tauri::AppHandle, today_tokens: u64, month_cost: f64) {
-	if let Some(tray) = app.tray_by_id("main") {
-		let fmt = |n: u64| {
-			let digits = n.to_string();
-			let mut out = String::new();
-			for (index, ch) in digits.chars().enumerate() {
-				if index > 0 && (digits.len() - index) % 3 == 0 { out.push(','); }
-				out.push(ch);
-			}
-			out
-		};
-		let _ = tray.set_tooltip(Some(format!(
-			"DeepSeek 用量\n今日 {} Tokens\n本月 ¥{:.2}",
-			fmt(today_tokens),
-			month_cost
-		)));
-	}
+fn update_tray_tooltip(today_tokens: u64, month_cost: f64) {
+	let fmt = |n: u64| {
+		let digits = n.to_string();
+		let mut out = String::new();
+		for (index, ch) in digits.chars().enumerate() {
+			if index > 0 && (digits.len() - index) % 3 == 0 { out.push(','); }
+			out.push(ch);
+		}
+		out
+	};
+	tray::set_tip(&format!(
+		"DeepSeek 用量\n今日 {} Tokens\n本月 ¥{:.2}",
+		fmt(today_tokens),
+		month_cost
+	));
 }
 
 //#endregion
@@ -555,7 +558,6 @@ fn backdrop_live_pref(cache: tauri::State<'_, BackdropCache>) -> bool {
 /// 屏幕捕获排除、重建托盘勾选、广播给渲染层，返回切换后的值。托盘菜单走同一套语义。
 #[tauri::command]
 fn set_backdrop_live_pref(
-	app: tauri::AppHandle,
 	window: tauri::WebviewWindow,
 	cache: tauri::State<'_, BackdropCache>,
 	enabled: bool,
@@ -569,7 +571,6 @@ fn set_backdrop_live_pref(
 		state.live = enabled;
 	}
 	apply_capture_exclusion(&window, enabled);
-	let _ = rebuild_tray_menu(&app);
 	let _ = window.emit("usg-live-backdrop", enabled);
 	Ok(enabled)
 }
@@ -599,8 +600,12 @@ fn place_bottom_right(window: &tauri::WebviewWindow) {
 	));
 }
 
-/** Recreate the tray menu (the autostart checkbox reflects the config). */
-fn rebuild_tray_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
+//#region tray bridge
+// 托盘换成原生 Shell_NotifyIcon（见 tray.rs）后，菜单项动作留在这里：托盘线程
+// 不能直接摸 Tauri 的状态，统一由这几个函数在主线程执行。
+
+/// 托盘菜单要显示的状态快照：(开机自启, 实时玻璃背景)。
+pub(crate) fn tray_state(app: &tauri::AppHandle) -> (bool, bool) {
 	let autostart = app.state::<AppConfig>().autostart();
 	let live = app
 		.state::<BackdropCache>()
@@ -608,23 +613,50 @@ fn rebuild_tray_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
 		.lock()
 		.map(|state| state.pref_live)
 		.unwrap_or(true);
-	let open = MenuItem::with_id(app, "open", "打开面板", true, None::<&str>)?;
-	let auto = CheckMenuItem::with_id(app, "autostart", "开机自启", true, autostart, None::<&str>)?;
-	let live_item = CheckMenuItem::with_id(
-		app,
-		"live-backdrop",
-		"实时玻璃背景",
-		true,
-		live,
-		None::<&str>,
-	)?;
-	let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
-	let menu = Menu::with_items(app, &[&open, &auto, &live_item, &quit])?;
-	if let Some(tray) = app.tray_by_id("main") {
-		tray.set_menu(Some(menu))?;
-	}
-	Ok(())
+	(autostart, live)
 }
+
+pub(crate) fn tray_show(app: &tauri::AppHandle) {
+	show_main(app);
+}
+
+pub(crate) fn tray_toggle_autostart(app: &tauri::AppHandle) -> bool {
+	let next = !app.state::<AppConfig>().autostart();
+	app.state::<AppConfig>().set_autostart(next);
+	let result = if next {
+		app.autolaunch().enable()
+	} else {
+		app.autolaunch().disable()
+	};
+	if let Err(error) = result {
+		log::warn!("tray: autostart switch failed: {error}");
+	}
+	next
+}
+
+/// 实时玻璃背景：勾选 = 持续抓屏（窗口对屏幕捕获隐身，截图里看不到）；
+/// 取消 = 回到跟手模式（只在事件/低频时抓一两帧，截图正常）。
+pub(crate) fn tray_toggle_live(app: &tauri::AppHandle) -> Option<bool> {
+	let cache = app.state::<BackdropCache>();
+	let next = {
+		let mut state = cache.0.lock().ok()?;
+		let next = !state.pref_live;
+		state.pref_live = next;
+		state.live = next;
+		next
+	};
+	if let Some(window) = app.get_webview_window("main") {
+		apply_capture_exclusion(&window, next);
+		let _ = window.emit("usg-live-backdrop", next);
+	}
+	Some(next)
+}
+
+pub(crate) fn tray_quit(app: &tauri::AppHandle) {
+	app.exit(0);
+}
+
+//#endregion
 
 pub fn run() {
 	tauri::Builder::default()
@@ -642,9 +674,12 @@ pub fn run() {
 		.manage(BackdropCache(Mutex::new(BackdropState {
 			pending: None,
 			live: false,
-			pref_live: true,
+			// 默认开启实时玻璃背景；`USG_CAPTURE_SAFE=1` 启动时退到跟手模式，
+			// 便于对窗口本身截图/录屏（实时模式会把自己从屏幕捕获里排除）。
+			pref_live: std::env::var("USG_CAPTURE_SAFE").is_err(),
 		})))
 		.invoke_handler(tauri::generate_handler![
+			app_version,
 			get_credentials,
 			save_token,
 			clear_token,
@@ -691,51 +726,9 @@ pub fn run() {
 				let _ = window.show();
 			}
 
-			// Tray: left-click shows the panel; menu has open/autostart/quit.
-			let mut builder = TrayIconBuilder::with_id("main")
-				.tooltip("DeepSeek 用量")
-				.on_menu_event(|app, event| match event.id.as_ref() {
-					"open" => show_main(app),
-					"quit" => app.exit(0),
-					"autostart" => {
-						let next = !app.state::<AppConfig>().autostart();
-						app.state::<AppConfig>().set_autostart(next);
-						if next { let _ = app.autolaunch().enable(); }
-						else { let _ = app.autolaunch().disable(); }
-						let _ = rebuild_tray_menu(app);
-					}
-					// 实时玻璃背景：勾选 = 持续抓屏（窗口对屏幕捕获隐身，截图里看不到）；
-					// 取消 = 回到跟手模式（只在事件/低频时抓一两帧，截图正常）。
-					"live-backdrop" => {
-						let cache = app.state::<BackdropCache>();
-						let next = {
-							let mut state = match cache.0.lock() {
-								Ok(state) => state,
-								Err(_) => return,
-							};
-							let next = !state.pref_live;
-							state.pref_live = next;
-							state.live = next;
-							next
-						};
-						if let Some(window) = app.get_webview_window("main") {
-							apply_capture_exclusion(&window, next);
-							let _ = window.emit("usg-live-backdrop", next);
-						}
-						let _ = rebuild_tray_menu(app);
-					}
-					_ => {}
-				})
-				.on_tray_icon_event(|tray, event| {
-					if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = event {
-						show_main(tray.app_handle());
-					}
-				});
-			if let Some(icon) = app.default_window_icon() {
-				builder = builder.icon(icon.clone());
-			}
-			builder.build(app)?;
-			rebuild_tray_menu(app.handle())?;
+			// 托盘：原生 Shell_NotifyIcon（见 tray.rs）—— Tauri 自带的托盘在这台机器上只 build
+			// 成功、Shell 里不落地（官方 0.4.5 二进制同样如此），所以整块换成原生实现。
+			tray::init(app.handle().clone());
 
 			// Apply the persisted autostart preference on boot.
 			if app.state::<AppConfig>().autostart() {
